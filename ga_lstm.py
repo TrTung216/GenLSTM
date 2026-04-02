@@ -5,7 +5,15 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 
 # Import các biến dữ liệu từ file data_prep.py
-from data_prep import X_train, y_train, X_test, y_test, scaler, TICKER_SYMBOL
+from data_prep import prepare_data
+
+# Khai báo thông tin cổ phiếu ngay tại đây
+TICKER_SYMBOL = 'AAPL'
+START_DATE = '2015-01-01'
+END_DATE = '2026-01-01'
+
+print("Đang tải và xử lý dữ liệu đa biến (Multivariate)...")
+X_train, y_train, X_test, y_test, scaler = prepare_data(TICKER_SYMBOL, START_DATE, END_DATE)
 
 # Import hàm đánh giá fitness từ file fitness_function.py
 from fitness_function import evaluate_fitness
@@ -183,10 +191,10 @@ if __name__ == "__main__":
     plt.show()
     
     # 4.4. Xây dựng MÔ HÌNH CUỐI CÙNG bằng PyTorch
-    print("\n🚀 Đang huấn luyện Mô hình cuối cùng với bộ tham số tốt nhất...")
+    print("\nĐang huấn luyện Mô hình cuối cùng với bộ tham số tốt nhất...")
     final_units, final_dropout, final_lr, final_batch = best_params
     
-    final_model = PyTorchLSTM(input_size=1, hidden_layer_size=final_units, dropout_rate=final_dropout).to(device)
+    final_model = PyTorchLSTM(input_size=4, hidden_layer_size=final_units, dropout_rate=final_dropout).to(device)
     loss_function = nn.MSELoss()
     optimizer = optim.Adam(final_model.parameters(), lr=final_lr)
     

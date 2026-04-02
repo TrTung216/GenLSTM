@@ -1,82 +1,55 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 
-# ==========================================
-# 1. CẤU HÌNH THÔNG SỐ
-# ==========================================
-TICKER_SYMBOL = "AAPL"
-START_DATE = "2015-01-01"
-END_DATE = "2026-01-01"
-WINDOW_SIZE = 60  # Dùng 60 ngày quá khứ để dự đoán 1 ngày tương lai
+def prepare_data(ticker, start_date, end_date, window_size=60):
+    # 1. Tải dữ liệu
+    df = yf.download(ticker, start=start_date, end=end_date)
+    
+    # Xử lý nếu yfinance trả về MultiIndex (thường gặp ở các bản mới)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
 
-print(f"Đang tải dữ liệu cho mã: {TICKER_SYMBOL}...")
+    # 2. Tính toán Feature Engineering
+    # Moving Average 20 ngày
+    df['MA20'] = df['Close'].rolling(window=20).mean()
+    
+    # RSI (Relative Strength Index)
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # Lấy thêm Volume (đã có sẵn trong df)
+    
+    # 3. Làm sạch dữ liệu (Xóa các dòng NaN do tính toán rolling)
+    df.dropna(inplace=True)
+    
+    # 4. Chọn các cột đặc trưng (Features) và Mục tiêu (Target)
+    # Chúng ta dùng: Close, MA20, RSI, Volume làm đầu vào
+    features = df[['Close', 'MA20', 'RSI', 'Volume']].values
+    target = df['Close'].values.reshape(-1, 1)
 
-# ==========================================
-# 2. TẢI VÀ LÀM SẠCH DỮ LIỆU
-# ==========================================
-# Tải dữ liệu từ Yahoo Finance
-df = yf.download(TICKER_SYMBOL, start=START_DATE, end=END_DATE)
+    # 5. Chuẩn hóa dữ liệu (Mỗi cột chuẩn hóa riêng biệt)
+    scaler_x = MinMaxScaler(feature_range=(0, 1))
+    scaler_y = MinMaxScaler(feature_range=(0, 1))
+    
+    scaled_features = scaler_x.fit_transform(features)
+    scaled_target = scaler_y.fit_transform(target)
 
-# 🛑 FIX LỖI: Xử lý cấu trúc MultiIndex của yfinance phiên bản mới
-if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.droplevel(1) # Gỡ bỏ tầng tên cổ phiếu (AAPL), chỉ giữ lại 'Close'
-
-# Lấy an toàn cột 'Close' và đưa về mảng 2 chiều
-data = df[['Close']].values
-
-# Kiểm tra xem có giá trị NaN nào không và loại bỏ
-if np.isnan(data).any():
-    print("Phát hiện dữ liệu bị thiếu (NaN), đang tiến hành xử lý...")
-    df = df.dropna()
-    data = df[['Close']].values
-
-print(f"Tổng số ngày giao dịch tải về: {len(data)}")
-
-# ==========================================
-# 3. CHUẨN HÓA DỮ LIỆU (NORMALIZATION)
-# ==========================================
-# Scale dữ liệu về khoảng (0, 1) giúp LSTM hội tụ nhanh hơn
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_data = scaler.fit_transform(data)
-
-# ==========================================
-# 4. TẠO CẤU TRÚC CỬA SỔ TRƯỢT (SLIDING WINDOW)
-# ==========================================
-X = []
-y = []
-
-# Trượt qua dữ liệu để tạo các cặp (Input = 60 ngày, Output = ngày thứ 61)
-for i in range(WINDOW_SIZE, len(scaled_data)):
-    X.append(scaled_data[i-WINDOW_SIZE:i, 0])
-    y.append(scaled_data[i, 0])
-
-X, y = np.array(X), np.array(y)
-
-# Định hình lại X thành 3D (Samples, Time Steps, Features) cho LSTM
-X = np.reshape(X, (X.shape[0], X.shape[1], 1))
-
-# ==========================================
-# 5. CHIA TẬP TRAIN / TEST
-# ==========================================
-# Chia 80% để Train, 20% để Test
-train_size = int(len(X) * 0.8)
-
-X_train, y_train = X[:train_size], y[:train_size]
-X_test, y_test = X[train_size:], y[train_size:]
-
-print(f"Kích thước tập X_train: {X_train.shape}")
-print(f"Kích thước tập y_train: {y_train.shape}")
-print(f"Kích thước tập X_test: {X_test.shape}")
-
-# Vẽ biểu đồ giá thực tế để kiểm tra
-plt.figure(figsize=(12, 6))
-plt.plot(df.index, df['Close'], label=f'Giá đóng cửa {TICKER_SYMBOL}', color='blue')
-plt.title(f'Lịch sử giá cổ phiếu {TICKER_SYMBOL}')
-plt.xlabel('Thời gian')
-plt.ylabel('Giá (USD)')
-plt.legend()
-plt.grid(True)
-plt.show()
+    # 6. Tạo Sliding Window (Cấu trúc dữ liệu cho LSTM)
+    X, y = [], []
+    for i in range(window_size, len(scaled_features)):
+        X.append(scaled_features[i-window_size:i]) # Lấy 60 bước thời gian của tất cả features
+        y.append(scaled_target[i]) # Dự báo giá Close của ngày tiếp theo
+        
+    X, y = np.array(X), np.array(y)
+    
+    # 7. Chia tập Train/Test (80/20)
+    split = int(len(X) * 0.8)
+    X_train, X_test = X[:split], X[split:]
+    y_train, y_test = y[:split], y[split:]
+    
+    return X_train, y_train, X_test, y_test, scaler_y

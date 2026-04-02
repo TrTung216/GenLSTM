@@ -10,21 +10,23 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 1. ĐỊNH NGHĨA KIẾN TRÚC MẠNG LSTM BẰNG PYTORCH
 class PyTorchLSTM(nn.Module):
-    def __init__(self, input_size=1, hidden_layer_size=50, dropout_rate=0.2):
+    def __init__(self, input_size=4, hidden_layer_size=50, dropout_rate=0.2):
         super().__init__()
-        # Lớp LSTM
-        self.lstm = nn.LSTM(input_size, hidden_layer_size, batch_first=True)
-        # Lớp Dropout (chống Overfitting)
+        self.hidden_layer_size = hidden_layer_size
+        
+        # 1. Thêm tham số bidirectional=True vào mạng LSTM
+        self.lstm = nn.LSTM(input_size, hidden_layer_size, batch_first=True, bidirectional=True)
+        
         self.dropout = nn.Dropout(dropout_rate)
-        # Lớp đầu ra (Dense/Linear layer)
-        self.linear = nn.Linear(hidden_layer_size, 1)
+        
+        # 2. Quan trọng: Khi dùng Bi-LSTM, đầu ra sẽ bị nhân đôi. 
+        # Nên lớp Linear cuối cùng phải nhận đầu vào là hidden_layer_size * 2
+        self.linear = nn.Linear(hidden_layer_size * 2, 1)
 
     def forward(self, input_seq):
         lstm_out, _ = self.lstm(input_seq)
-        # Chỉ lấy đầu ra của bước thời gian cuối cùng (last time step)
-        last_time_step = lstm_out[:, -1, :]
-        dropped_out = self.dropout(last_time_step)
-        predictions = self.linear(dropped_out)
+        # Chỉ lấy đầu ra của bước thời gian cuối cùng để dự báo
+        predictions = self.linear(self.dropout(lstm_out[:, -1, :]))
         return predictions
 
 # 2. HÀM TÍNH FITNESS CHO GA
@@ -43,7 +45,7 @@ def evaluate_fitness(chromosome, X_train, y_train, X_val, y_val):
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=False)
 
     # Khởi tạo mô hình, hàm mất mát (MSE) và bộ tối ưu (Adam)
-    model = PyTorchLSTM(input_size=1, hidden_layer_size=units, dropout_rate=dropout_rate).to(device)
+    model = PyTorchLSTM(input_size=4, hidden_layer_size=units, dropout_rate=dropout_rate).to(device)
     loss_function = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
