@@ -1,0 +1,37 @@
+Giai đoạn 1: Xác định bài toán & Chuẩn bị dữ liệu (Khởi động)
+Chốt lĩnh vực & Tìm Dataset: Chọn dữ liệu (Cổ phiếu, Năng lượng, hoặc Môi trường) và tải dữ liệu thô (từ Kaggle, Yahoo Finance, hoặc các nguồn mở).
+
+Nghiên cứu tài liệu (Literature Review): Đọc các bài báo tôi đã gợi ý ở trên để chốt lại các siêu tham số (hyperparameters) nào của LSTM sẽ để cho GA tối ưu (ví dụ: số nơ-ron, learning rate, batch size).
+
+Giai đoạn 2: Tiền xử lý dữ liệu (Data Preprocessing)
+Làm sạch dữ liệu: Xử lý missing values (nếu có), loại bỏ các điểm dị thường (outliers).
+
+Chuẩn hóa (Normalization): Scale dữ liệu về khoảng [0, 1] hoặc [-1, 1] (MinMaxScaler) để LSTM học tốt hơn.
+
+Tạo chuỗi thời gian (Sliding Window): Chuyển đổi dữ liệu bảng 1 chiều thành cấu trúc 3 chiều (Samples, Time Steps, Features) chuyên dụng cho mạng LSTM.
+
+Chia tập dữ liệu: Tách thành Train set, Validation set và Test set.
+
+Giai đoạn 3: Xây dựng Baseline Model (Đường cơ sở)
+Xây dựng một mạng LSTM cơ bản (Vanilla LSTM) với các thông số mặc định hoặc do bạn tự đoán.
+
+Huấn luyện và đánh giá trên tập Test. Ghi nhận lại các chỉ số sai số (RMSE, MAE) và thời gian huấn luyện. Đây là "bia đỡ đạn" để sau này chứng minh GA-LSTM tốt hơn.
+
+Giai đoạn 4: Cài đặt hệ thống lai GA-LSTM (Trọng tâm kỹ thuật)
+Mã hóa GA: Thiết lập cấu trúc NST (Nhiễm sắc thể) cho GA đại diện cho bộ siêu tham số.
+
+Định nghĩa hàm Fitness: Viết hàm nhận đầu vào là các tham số từ GA, khởi tạo mô hình LSTM, huấn luyện ngắn hạn (với Early Stopping để chống tràn VRAM cho máy RTX 3050Ti của bạn), và trả về nghịch đảo của sai số (ví dụ: 1/Validation_Loss).
+
+Vòng lặp tiến hóa: Chạy GA qua các thế hệ (Lai ghép, Đột biến, Chọn lọc) để tìm ra bộ tham số "vô địch".
+
+Giai đoạn 5: Đánh giá và Trực quan hóa kết quả (Kết quả NCKH)
+Dùng bộ tham số tốt nhất từ Giai đoạn 4 để huấn luyện lại mô hình LSTM một lần cuối.
+
+Vẽ biểu đồ: * Biểu đồ so sánh giá trị dự đoán (Predicted) và giá trị thực tế (Actual).
+
+Biểu đồ thể hiện sự hội tụ của GA (Fitness tăng dần qua từng thế hệ).
+
+Lập bảng so sánh độ chính xác của GA-LSTM với Baseline Model ở Giai đoạn 3.
+
+Giai đoạn 6: Viết báo cáo NCKH
+Lắp ráp các kết quả vào form báo cáo NCKH chuẩn (Mở đầu, Cơ sở lý thuyết, Phương pháp đề xuất, Kết quả thực nghiệm, Kết luận).
