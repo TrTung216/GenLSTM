@@ -54,7 +54,6 @@ Quá trình thực thi bao gồm các bước:
 
 ## Kết quả thực nghiệm
 
-(Lưu ý: Bạn hãy chụp màn hình 2 biểu đồ do code sinh ra và lưu vào thư mục images/, sau đó thay đổi đường dẫn dưới đây)
 
 1. Quá trình hội tụ của Thuật toán Di truyền (GA)
 Mô hình thể hiện sự cải thiện rõ rệt về điểm số Thích nghi (Fitness) qua từng thế hệ, chứng minh thuật toán đã thoát khỏi các điểm cực tiểu cục bộ.
