@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-def prepare_data(ticker, start_date, end_date, window_size=60):
+def prepare_data(ticker, start_date, end_date, window_size=16):
     # 1. Tải dữ liệu
     df = yf.download(ticker, start=start_date, end=end_date)
     
@@ -22,14 +22,13 @@ def prepare_data(ticker, start_date, end_date, window_size=60):
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # Lấy thêm Volume (đã có sẵn trong df)
-    
     # 3. Làm sạch dữ liệu (Xóa các dòng NaN do tính toán rolling)
     df.dropna(inplace=True)
     
     # 4. Chọn các cột đặc trưng (Features) và Mục tiêu (Target)
-    # Chúng ta dùng: Close, MA20, RSI, Volume làm đầu vào
-    features = df[['Close', 'MA20', 'RSI', 'Volume']].values
+    # CẬP NHẬT: Thêm Open, High, Low để tạo bộ 7 biến (OHLCV + MA20 + RSI)
+    features_cols = ['Open', 'High', 'Low', 'Close', 'Volume', 'MA20', 'RSI']
+    features = df[features_cols].values
     target = df['Close'].values.reshape(-1, 1)
 
     # 5. Chuẩn hóa dữ liệu (Mỗi cột chuẩn hóa riêng biệt)
@@ -39,11 +38,13 @@ def prepare_data(ticker, start_date, end_date, window_size=60):
     scaled_features = scaler_x.fit_transform(features)
     scaled_target = scaler_y.fit_transform(target)
 
-    # 6. Tạo Sliding Window (Cấu trúc dữ liệu cho LSTM)
+    # 6. Tạo Sliding Window (Cấu trúc dữ liệu cho mạng nơ-ron)
     X, y = [], []
     for i in range(window_size, len(scaled_features)):
-        X.append(scaled_features[i-window_size:i]) # Lấy 60 bước thời gian của tất cả features
-        y.append(scaled_target[i]) # Dự báo giá Close của ngày tiếp theo
+        # Lấy 'window_size' bước thời gian của TẤT CẢ 7 features
+        X.append(scaled_features[i-window_size:i]) 
+        # Dự báo giá Close của ngày tiếp theo
+        y.append(scaled_target[i]) 
         
     X, y = np.array(X), np.array(y)
     
@@ -51,5 +52,9 @@ def prepare_data(ticker, start_date, end_date, window_size=60):
     split = int(len(X) * 0.8)
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
+    
+    # In ra để kiểm tra
+    print(f"Kích thước X_train: {X_train.shape} (Mẫu, Thời gian, Đặc trưng)")
+    print(f"Kích thước y_train: {y_train.shape}")
     
     return X_train, y_train, X_test, y_test, scaler_y

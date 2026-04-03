@@ -15,14 +15,15 @@ END_DATE = '2026-01-01'
 print("Đang tải và xử lý dữ liệu đa biến (Multivariate)...")
 X_train, y_train, X_test, y_test, scaler = prepare_data(TICKER_SYMBOL, START_DATE, END_DATE)
 
-# Import hàm đánh giá fitness từ file fitness_function.py
-from fitness_function import evaluate_fitness
+# Import hàm đánh giá fitness và kiến trúc mạng TỪ file fitness_function.py
+from fitness_function import evaluate_fitness, CNN_LSTM, device
+
 # ==========================================
-# 1. ĐỊNH NGHĨA KHÔNG GIAN TÌM KIẾM
+# 1. ĐỊNH NGHĨA KHÔNG GIAN TÌM KIẾM (Chuẩn 2025)
 # ==========================================
-SPACE_UNITS = [16, 32, 64, 128]
-SPACE_DROPOUT = [0.05, 0.1, 0.15, 0.2]
-SPACE_LR = [0.001, 0.005, 0.01]
+SPACE_UNITS = [32, 64, 96, 128]
+SPACE_DROPOUT = [0.05, 0.1, 0.15]
+SPACE_LR = [0.0001, 0.0005, 0.001, 0.005, 0.01]
 SPACE_BATCH = [16, 32, 64]
 
 # Thông số GA
@@ -96,7 +97,7 @@ def mutate(individual):
 # 3. VÒNG LẶP TIẾN HÓA (MAIN GA LOOP)
 # ==========================================
 def run_ga_lstm(X_train, y_train, X_val, y_val):
-    print("Bắt đầu quá trình tối ưu hóa GA-LSTM...")
+    print("Bắt đầu quá trình tối ưu hóa GA-CNN-LSTM...")
     
     population = initial_population(POPULATION_SIZE)
     best_chromosome_overall = None
@@ -111,12 +112,12 @@ def run_ga_lstm(X_train, y_train, X_val, y_val):
         # 3.1. Đánh giá độ thích nghi của toàn bộ quần thể
         fitness_scores = []
         for i, chromosome in enumerate(population):
-            # Hàm evaluate_fitness là hàm chúng ta đã viết ở bước trước
+            # Hàm evaluate_fitness tích hợp Loss: MSE + (1 - R^2)
             fitness = evaluate_fitness(chromosome, X_train, y_train, X_val, y_val)
             fitness_scores.append(fitness)
             print(f"Cá thể {i+1} {chromosome} -> Fitness: {fitness:.4f}")
             
-        # 3.2. Tìm cá thể vô địch của thế hệ này (Chủ nghĩa tinh hoa - Elitism)
+        # 3.2. Tìm cá thể vô địch của thế hệ này
         gen_best_idx = np.argmax(fitness_scores)
         gen_best_chromosome = population[gen_best_idx]
         gen_best_fitness = fitness_scores[gen_best_idx]
@@ -149,8 +150,7 @@ def run_ga_lstm(X_train, y_train, X_val, y_val):
         # 3.5. Đột biến (Mutation)
         next_generation = [mutate(ind) for ind in next_generation]
         
-        # 3.6. Chủ nghĩa Tinh hoa (Elitism): Giữ lại con mạnh nhất của thế hệ trước thay cho 1 con ngẫu nhiên
-        # Giúp đảm bảo đồ thị tiến hóa không bao giờ bị tụt lùi
+        # 3.6. Chủ nghĩa Tinh hoa (Elitism): Giữ lại con mạnh nhất của thế hệ trước
         next_generation[0] = copy.deepcopy(gen_best_chromosome)
         
         # Đưa thế hệ mới vào vòng lặp tiếp theo
@@ -162,12 +162,11 @@ def run_ga_lstm(X_train, y_train, X_val, y_val):
     print(f"Điểm Fitness cao nhất: {best_fitness_overall:.4f}")
     
     return best_chromosome_overall, history_best_fitness
+
 # ==========================================
-# 4. CHẠY HỆ THỐNG VÀ TRỰC QUAN HÓA KẾT QUẢ (PYTORCH)
+# 4. CHẠY HỆ THỐNG VÀ TRỰC QUAN HÓA KẾT QUẢ
 # ==========================================
 if __name__ == "__main__":
-    # Import class PyTorchLSTM và device từ fitness_function để dùng cho mô hình cuối
-    from fitness_function import PyTorchLSTM, device
     import torch
     import torch.nn as nn
     import torch.optim as optim
@@ -194,7 +193,8 @@ if __name__ == "__main__":
     print("\nĐang huấn luyện Mô hình cuối cùng với bộ tham số tốt nhất...")
     final_units, final_dropout, final_lr, final_batch = best_params
     
-    final_model = PyTorchLSTM(input_size=4, hidden_layer_size=final_units, dropout_rate=final_dropout).to(device)
+    # CẬP NHẬT: Dùng mô hình CNN_LSTM với input_size = 7
+    final_model = CNN_LSTM(input_size=7, hidden_layer_size=final_units, dropout_rate=final_dropout).to(device)
     loss_function = nn.MSELoss()
     optimizer = optim.Adam(final_model.parameters(), lr=final_lr)
     
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     plt.figure(figsize=(14, 6))
     plt.plot(y_test_usd, color='blue', label='Giá thực tế (Actual Price)')
     plt.plot(predictions_usd, color='red', linestyle='dashed', label='Giá dự đoán (Predicted Price)')
-    plt.title(f'Dự báo giá cổ phiếu {TICKER_SYMBOL} bằng mô hình GA-LSTM (PyTorch)')
+    plt.title(f'Dự báo giá cổ phiếu {TICKER_SYMBOL} bằng mô hình GA-CNN-LSTM (PyTorch)')
     plt.xlabel('Thời gian (Ngày)')
     plt.ylabel('Giá (USD)')
     plt.legend()
