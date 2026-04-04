@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GenLSTM - Dự báo chứng khoán</title>
+</head>
+<body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+    <h1>Hệ thống Dự báo Giá Cổ phiếu GA-LSTM</h1>
+    <p>Trạng thái: <strong>Server đang hoạt động</strong></p>
+    
+    <div style="margin-top: 30px;">
+        <input type="text" id="ticker" placeholder="Nhập mã (VD: AAPL)" value="AAPL">
+        <button onclick="makePrediction()">Dự báo ngay</button>
+    </div>
+
+    <p id="result" style="margin-top: 20px; color: blue; font-weight: bold;"></p>
+
+    <script>
+        function makePrediction() {
+            const ticker = document.getElementById('ticker').value;
+            document.getElementById('result').innerText = "Đang xử lý...";
+            
+            fetch('/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticker: ticker })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('result').innerText = 
+                    `Dự báo cho ${data.ticker}: ${data.predicted_price} USD`;
+            })
+            .catch(error => {
+                document.getElementById('result').innerText = "Có lỗi xảy ra!";
+            });
+        }
+    </script>
+</body>
+</html>

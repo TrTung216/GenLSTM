@@ -1,0 +1,20 @@
+_pycache_# Môi trường ảo
+venv/
+env/
+.env
+
+# Cache của Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Thư mục IDE
+.vscode/
+.idea/
+
+# File mô hình PyTorch
+*.pth
+*.pt
+
+# Dữ liệu tải về
+*.csv
