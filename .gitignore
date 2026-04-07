@@ -1,4 +1,4 @@
-_pycache_# Môi trường ảo
+# Môi trường ảo
 venv/
 env/
 .env
@@ -15,6 +15,7 @@ __pycache__/
 # File mô hình PyTorch
 *.pth
 *.pt
+!best_model.pth
 
 # Dữ liệu tải về
 *.csv

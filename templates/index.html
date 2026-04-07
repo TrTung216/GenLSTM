@@ -5,21 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GenLSTM - Dự báo chứng khoán</title>
 </head>
-<body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-    <h1>Hệ thống Dự báo Giá Cổ phiếu GA-LSTM</h1>
-    <p>Trạng thái: <strong>Server đang hoạt động</strong></p>
-    
-    <div style="margin-top: 30px;">
-        <input type="text" id="ticker" placeholder="Nhập mã (VD: AAPL)" value="AAPL">
-        <button onclick="makePrediction()">Dự báo ngay</button>
-    </div>
+<body style="font-family: Arial, sans-serif; text-align: center; padding: 50px; background-color: #f4f7f6;">
+    <div style="max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+        <h1 style="color: #2c3e50;">Hệ thống Dự báo GA-LSTM</h1>
+        <p>Trạng thái: <span style="color: #27ae60; font-weight: bold;">● Server đang hoạt động</span></p>
+        
+        <div style="margin-top: 30px;">
+            <input type="text" id="ticker" placeholder="Nhập mã (VD: AAPL)" value="AAPL" 
+                   style="padding: 10px; width: 200px; border-radius: 5px; border: 1px solid #ddd; text-transform: uppercase;">
+            <button onclick="makePrediction()" 
+                    style="padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                Dự báo ngay
+            </button>
+        </div>
 
-    <p id="result" style="margin-top: 20px; color: blue; font-weight: bold;"></p>
+        <div id="result" style="margin-top: 30px; min-height: 50px; padding: 15px; border-radius: 8px; transition: all 0.3s ease;"></div>
+    </div>
 
     <script>
         function makePrediction() {
-            const ticker = document.getElementById('ticker').value;
-            document.getElementById('result').innerText = "Đang xử lý...";
+            const ticker = document.getElementById('ticker').value.toUpperCase();
+            const resultArea = document.getElementById('result'); 
+            
+            resultArea.style.backgroundColor = "#f9f9f9";
+            resultArea.innerHTML = "<span style='color: #7f8c8d; font-weight: bold;'>⌛ Đang lấy dữ liệu và tính toán...</span>";
             
             fetch('/predict', {
                 method: 'POST',
@@ -28,13 +37,48 @@
             })
             .then(response => response.json())
             .then(data => {
-                document.getElementById('result').innerText = 
-                    `Dự báo cho ${data.ticker}: ${data.predicted_price} USD`;
+                if (data.status === "success") {
+                    // Xác định màu sắc và dấu dựa trên % dự báo
+                    const isPositive = data.predicted_change_pct >= 0;
+                    const textColor = isPositive ? "#27ae60" : "#e74c3c"; // Xanh lá hoặc Đỏ
+                    const bgColor = isPositive ? "#e8f6ef" : "#fdeaea";   // Nền xanh nhạt hoặc đỏ nhạt
+                    const sign = isPositive ? "+" : "";
+
+                    resultArea.style.backgroundColor = bgColor;
+                    resultArea.innerHTML = `
+                        <div style="color: #2c3e50;">
+                            <strong style="font-size: 1.2em;">Dự báo cho ${data.ticker}</strong><br>
+                            <span style="font-size: 0.9em; color: #7f8c8d;">Phiên giao dịch: ${data.predict_date}</span><br>
+                            
+                            <div style="margin-top: 15px; font-size: 1em; color: #34495e;">
+                                Giá đóng cửa gần nhất: <strong>$${data.last_close}</strong>
+                            </div>
+                            
+                            <div style="font-size: 2.2em; margin-top: 5px; font-weight: bold; color: ${textColor};">
+                                $${data.predicted_price} 
+                                <span style="font-size: 0.5em; vertical-align: middle;">(${sign}${data.predicted_change_pct}%)</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    resultArea.style.backgroundColor = "#fdeaea";
+                    resultArea.innerHTML = `<span style="color: #e74c3c; font-weight: bold;"> Lỗi: ${data.error}</span>`;
+                }
             })
             .catch(error => {
-                document.getElementById('result').innerText = "Có lỗi xảy ra!";
+                console.error("Lỗi:", error);
+                resultArea.style.backgroundColor = "#fdeaea";
+                resultArea.innerHTML = `<span style="color: #e74c3c; font-weight: bold;"> Lỗi kết nối hoặc xử lý dữ liệu!</span>`;
             });
         }
+        
+        // Bắt sự kiện nhấn Enter ở ô input
+        document.getElementById("ticker").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                makePrediction();
+            }
+        });
     </script>
 </body>
 </html>
