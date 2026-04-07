@@ -98,7 +98,7 @@ def predict():
         if isinstance(stock.columns, pd.MultiIndex):
             stock.columns = stock.columns.get_level_values(0)
 
-        # Tiền xử lý giống hệt lúc Train
+        # Tiền xử lý
         stock['Volume'] = np.log1p(stock['Volume'])
 
         # Chỉ báo kỹ thuật

@@ -14,8 +14,6 @@ import pandas_market_calendars as mcal
 from torch.utils.data import DataLoader, TensorDataset
 from datetime import datetime, timedelta
 import yfinance as yf
-
-# Import các hàm từ file khác
 from data_prep import prepare_data_from_df, download_stock_data
 from fitness_function import evaluate_fitness, CNN_LSTM, device
 
@@ -25,7 +23,7 @@ print(f"Current Device: {torch.cuda.get_device_name(0) if torch.cuda.is_availabl
 TICKER_SYMBOL = 'AAPL'
 START_DATE = '2015-01-01'
 
-# 1. Tự động lấy ngày giao dịch cuối cùng từ NYSE
+# 1. Lấy ngày giao dịch cuối cùng từ NYSE
 nyse = mcal.get_calendar('NYSE')
 now = datetime.now()
 schedule = nyse.schedule(start_date=(now - timedelta(days=10)).strftime('%Y-%m-%d'), 
@@ -57,7 +55,7 @@ SPACES_DICT = {
 POPULATION_SIZE = 20
 GENERATIONS = 15
 CROSSOVER_RATE = 0.8
-TOURNAMENT_SIZE = 3 # Giữ nguyên hoặc có thể giảm xuống 2 nếu vẫn thấy kẹt
+TOURNAMENT_SIZE = 3
 
 def create_individual():
     """Khởi tạo một cá thể với 7 Gene"""
@@ -99,8 +97,6 @@ def mutate(individual, mut_rate):
 def woa_refinement(chromosome, best_chromosome, current_gen, max_gen, spaces):
     """Toán tử Tinh chỉnh cục bộ của Thuật toán Đàn Cá Voi (WOA)"""
     new_chrom = list(chromosome)
-    
-    # Tham số a giảm tuyến tính từ 2 về 0 để siết chặt vòng vây
     a = 2 - current_gen * (2 / max_gen)
     
     for i in range(len(chromosome)):
@@ -121,7 +117,7 @@ def woa_refinement(chromosome, best_chromosome, current_gen, max_gen, spaces):
             l = random.uniform(-1, 1)
             new_val = D_prime * math.exp(b * l) * math.cos(2 * math.pi * l) + best_chromosome[i]
 
-        # Snap (Gióng) giá trị toán học về lại không gian tham số hợp lệ
+        # Snap giá trị toán học về lại không gian tham số hợp lệ
         if i == 1: # Dropout
             new_chrom[i] = max(0.0, min(0.5, round(new_val, 2)))
         elif i == 2: # Learning Rate
@@ -179,7 +175,7 @@ def run_ga_lstm(df_raw):
         population = [population[idx] for idx in sorted_indices]
         fitness_scores = [fitness_scores[idx] for idx in sorted_indices]
         
-        gen_best_idx = 0 # Vì đã sort nên index 0 luôn là tốt nhất của Gen này
+        gen_best_idx = 0
         if fitness_scores[gen_best_idx] > best_fitness_overall:
             best_fitness_overall = fitness_scores[gen_best_idx]
             best_chromosome_overall = copy.deepcopy(population[gen_best_idx])
@@ -212,7 +208,7 @@ def run_ga_lstm(df_raw):
             if len(next_gen) < POPULATION_SIZE:
                 next_gen.append(mutate(c2, dynamic_mut_rate))
                 
-        population = next_gen[:POPULATION_SIZE] # Đảm bảo đúng số lượng quần thể
+        population = next_gen[:POPULATION_SIZE]
         
     return best_chromosome_overall, history_best_fitness
 

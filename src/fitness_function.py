@@ -56,11 +56,9 @@ class CNN_LSTM(nn.Module):
 # 2. HÀM TÍNH FITNESS CHO GA (7 GENES)
 # ==========================================
 def evaluate_fitness(chromosome, X_train, y_train, X_val, y_val):
-    # Giải mã 7 gene từ nhiễm sắc thể
-    # Gene mới: num_layers (vị trí cuối cùng)
     units, dropout_rate, lr, batch_size, window_size, cnn_filters, num_layers = chromosome
     
-    # Ép kiểu an toàn
+    # Ép kiểu
     batch_size = int(batch_size)
     units = int(units)
     cnn_filters = int(cnn_filters)
@@ -95,7 +93,7 @@ def evaluate_fitness(chromosome, X_train, y_train, X_val, y_val):
     patience = 5
     patience_counter = 0
 
-    for epoch in range(25): # Tăng nhẹ epoch cho mạng sâu
+    for epoch in range(25):
         model.train()
         for seq, labels in train_loader:
             seq, labels = seq.to(device), labels.to(device)

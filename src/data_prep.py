@@ -35,7 +35,6 @@ def add_technical_indicators(df):
     return df
 
 def download_stock_data(ticker, start_date, end_date):
-    """Hàm này chỉ gọi 1 LẦN duy nhất trong ga_lstm.py"""
     print(f"--- Đang tải dữ liệu cho {ticker} ---")
     df = yf.download(ticker, start=start_date, end=end_date, progress=False)
     
@@ -48,7 +47,6 @@ def download_stock_data(ticker, start_date, end_date):
     return df
 
 def prepare_data_from_df(df_input, window_size=16):
-    """Hàm này xử lý dữ liệu từ DataFrame có sẵn (Chạy trong vòng lặp GA)"""
     if df_input is None: return None, None, None, None, None
     
     df = df_input.copy()
@@ -59,13 +57,10 @@ def prepare_data_from_df(df_input, window_size=16):
     # 2. Indicators
     df = add_technical_indicators(df)
     
-    # --- [SỬA 2]: TÍNH TỈ SUẤT SINH LỜI ---
     df['Target_Return'] = df['Close'].pct_change()
-    df.dropna(inplace=True) # Xóa dòng NaN đầu tiên do pct_change tạo ra
-    # --------------------------------------
+    df.dropna(inplace=True)
 
     # 3. Features & Target
-    # Lưu ý: Vẫn giữ 'Close' trong features để AI lấy làm cơ sở tham chiếu
     features_cols = [
         'Open', 'High', 'Low', 'Close', 'Volume', 
         'SMA_10', 'SMA_20', 'EMA_20', 'RSI_14', 
@@ -75,27 +70,22 @@ def prepare_data_from_df(df_input, window_size=16):
     # Kiểm tra số lượng mẫu sau khi dropna
     if len(df) <= window_size:
         return None, None, None, None, None
-
     features = df[features_cols].values
-    
-    # --- [SỬA 3]: ĐỔI TARGET SANG CỘT RETURN ---
     target = df['Target_Return'].values.reshape(-1, 1)
 
     # 4. Scaling
     scaler_x = RobustScaler()
-    scaler_y = StandardScaler() # [SỬA 4]: Dùng StandardScaler cho % để phân phối chuẩn hơn
-    
+    scaler_y = StandardScaler()
     scaled_features = scaler_x.fit_transform(features)
     scaled_target = scaler_y.fit_transform(target)
 
-    # Lưu scalers (chỉ nên lưu ở lần huấn luyện cuối cùng, hoặc dùng joblib ghi đè)
+    # Lưu scalers
     joblib.dump(scaler_x, 'scaler_x.pkl')
     joblib.dump(scaler_y, 'scaler_y.pkl')
     
     # 5. Sliding Window
     X, y = [], []
     for i in range(window_size, len(scaled_features)):
-        # Tính toán: Nhìn lại 'window_size' ngày trước đó (tới i-1) để đoán Target_Return của ngày i
         X.append(scaled_features[i-window_size:i]) 
         y.append(scaled_target[i]) 
         
