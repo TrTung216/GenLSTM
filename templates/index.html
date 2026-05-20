@@ -1,84 +1,776 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GenLSTM - Dự báo chứng khoán</title>
-</head>
-<body style="font-family: Arial, sans-serif; text-align: center; padding: 50px; background-color: #f4f7f6;">
-    <div style="max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-        <h1 style="color: #2c3e50;">Hệ thống Dự báo GA-LSTM</h1>
-        <p>Trạng thái: <span style="color: #27ae60; font-weight: bold;">● Server đang hoạt động</span></p>
-        
-        <div style="margin-top: 30px;">
-            <input type="text" id="ticker" placeholder="Nhập mã (VD: AAPL)" value="AAPL" 
-                   style="padding: 10px; width: 200px; border-radius: 5px; border: 1px solid #ddd; text-transform: uppercase;">
-            <button onclick="makePrediction()" 
-                    style="padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                Dự báo ngay
-            </button>
-        </div>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GenLSTM — Stock Forecast</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
 
-        <div id="result" style="margin-top: 30px; min-height: 50px; padding: 15px; border-radius: 8px; transition: all 0.3s ease;"></div>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --accent: #00ff88;
+    --accent2: #ff6b35;
+    --danger: #ff3d5a;
+    --text: #e8e8f0;
+    --muted: #5a5a7a;
+    --up: #00ff88;
+    --down: #ff3d5a;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    background-image:
+      radial-gradient(ellipse 60% 40% at 80% 10%, rgba(0,255,136,0.04) 0%, transparent 60%),
+      radial-gradient(ellipse 40% 30% at 20% 80%, rgba(255,107,53,0.04) 0%, transparent 60%);
+  }
+
+  /* ---- HEADER ---- */
+  header {
+    width: 100%;
+    max-width: 760px;
+    margin-bottom: 48px;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    opacity: 0.7;
+  }
+
+  h1 {
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -1px;
+  }
+
+  h1 span { color: var(--accent); }
+
+  .subtitle {
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  /* ---- FORM ---- */
+  .form-card {
+    width: 100%;
+    max-width: 760px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+
+  .form-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  input[type="text"], input[type="range"], select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 15px;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  input[type="text"]:focus {
+    border-color: var(--accent);
+  }
+
+  .ticker-input { width: 160px; text-transform: uppercase; }
+
+  .range-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  input[type="range"] {
+    padding: 0;
+    width: 140px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    border: none;
+  }
+
+  .range-val {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    text-align: center;
+  }
+
+  .btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 1px;
+    padding: 12px 28px;
+    cursor: pointer;
+    transition: transform 0.15s, opacity 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn:hover { opacity: 0.85; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ---- RESULT CARD ---- */
+  .result-card {
+    width: 100%;
+    max-width: 760px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    display: none;
+    animation: fadeUp 0.4s ease;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .ticker-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 3px;
+    background: rgba(0,255,136,0.08);
+    border: 1px solid rgba(0,255,136,0.2);
+    border-radius: 6px;
+    padding: 4px 10px;
+  }
+
+  .predict-date {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Price display */
+  .price-block {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .price-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .price-box.main {
+    border-color: var(--accent);
+    background: rgba(0,255,136,0.04);
+  }
+
+  .price-box .label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .price-box .value {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+  }
+
+  .price-box.main .value { color: var(--accent); }
+
+  .price-box .change {
+    font-family: var(--mono);
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .up   { color: var(--up); }
+  .down { color: var(--down); }
+
+  /* Confidence interval bar */
+  .ci-section {
+    margin-bottom: 28px;
+  }
+
+  .ci-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  .ci-bar-wrap {
+    position: relative;
+    height: 48px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+
+  .ci-fill {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(0,255,136,0.15);
+    border-left: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    transition: all 0.5s ease;
+  }
+
+  .ci-center {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 3px;
+    height: 28px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  .ci-annotations {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* Uncertainty meter */
+  .uncertainty-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+
+  .unc-box {
+    flex: 1;
+    min-width: 140px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .unc-box .label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .unc-box .value {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent2);
+  }
+
+  .unc-meter {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+
+  .unc-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+
+  /* Histogram */
+  .hist-section {
+    margin-bottom: 8px;
+  }
+
+  .hist-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  canvas#histCanvas {
+    width: 100%;
+    height: 120px;
+    display: block;
+    border-radius: 8px;
+  }
+
+  /* Error */
+  .error-card {
+    width: 100%;
+    max-width: 760px;
+    background: rgba(255,61,90,0.08);
+    border: 1px solid rgba(255,61,90,0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--danger);
+    display: none;
+  }
+
+  /* Loading */
+  .loading {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 16px;
+  }
+
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Footer note */
+  .note {
+    width: 100%;
+    max-width: 760px;
+    margin-top: 24px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.7;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">GenLSTM · MC Dropout</div>
+  <h1>Stock <span>Forecast</span><br>with Uncertainty</h1>
+  <p class="subtitle">// Monte Carlo Dropout · Confidence Interval · Distribution</p>
+</header>
+
+<!-- FORM -->
+<div class="form-card">
+  <div class="form-row">
+    <div class="field">
+      <label>Mã cổ phiếu</label>
+      <input type="text" id="tickerInput" class="ticker-input" value="AAPL" placeholder="AAPL" />
     </div>
 
-    <script>
-        function makePrediction() {
-            const ticker = document.getElementById('ticker').value.toUpperCase();
-            const resultArea = document.getElementById('result'); 
-            
-            resultArea.style.backgroundColor = "#f9f9f9";
-            resultArea.innerHTML = "<span style='color: #7f8c8d; font-weight: bold;'>⌛ Đang lấy dữ liệu và tính toán...</span>";
-            
-            fetch('/predict', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ticker: ticker })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === "success") {
-                    // Xác định màu sắc và dấu dựa trên % dự báo
-                    const isPositive = data.predicted_change_pct >= 0;
-                    const textColor = isPositive ? "#27ae60" : "#e74c3c"; // Xanh lá hoặc Đỏ
-                    const bgColor = isPositive ? "#e8f6ef" : "#fdeaea";   // Nền xanh nhạt hoặc đỏ nhạt
-                    const sign = isPositive ? "+" : "";
+    <div class="field range-wrap">
+      <label>MC Samples: <span id="samplesVal">100</span></label>
+      <input type="range" id="samplesRange" min="50" max="500" step="50" value="100"
+             oninput="document.getElementById('samplesVal').textContent=this.value" />
+    </div>
 
-                    resultArea.style.backgroundColor = bgColor;
-                    resultArea.innerHTML = `
-                        <div style="color: #2c3e50;">
-                            <strong style="font-size: 1.2em;">Dự báo cho ${data.ticker}</strong><br>
-                            <span style="font-size: 0.9em; color: #7f8c8d;">Phiên giao dịch: ${data.predict_date}</span><br>
-                            
-                            <div style="margin-top: 15px; font-size: 1em; color: #34495e;">
-                                Giá đóng cửa gần nhất: <strong>$${data.last_close}</strong>
-                            </div>
-                            
-                            <div style="font-size: 2.2em; margin-top: 5px; font-weight: bold; color: ${textColor};">
-                                $${data.predicted_price} 
-                                <span style="font-size: 0.5em; vertical-align: middle;">(${sign}${data.predicted_change_pct}%)</span>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    resultArea.style.backgroundColor = "#fdeaea";
-                    resultArea.innerHTML = `<span style="color: #e74c3c; font-weight: bold;"> Lỗi: ${data.error}</span>`;
-                }
-            })
-            .catch(error => {
-                console.error("Lỗi:", error);
-                resultArea.style.backgroundColor = "#fdeaea";
-                resultArea.innerHTML = `<span style="color: #e74c3c; font-weight: bold;"> Lỗi kết nối hoặc xử lý dữ liệu!</span>`;
-            });
-        }
-        
-        // Bắt sự kiện nhấn Enter ở ô input
-        document.getElementById("ticker").addEventListener("keypress", function(event) {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                makePrediction();
-            }
-        });
-    </script>
+    <div class="field range-wrap">
+      <label>Confidence: <span id="confVal">90</span>%</label>
+      <input type="range" id="confRange" min="50" max="99" step="5" value="90"
+             oninput="document.getElementById('confVal').textContent=this.value" />
+    </div>
+
+    <button class="btn" id="predictBtn" onclick="runPredict()">▶ Dự báo</button>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <span id="loadingText">Đang chạy Monte Carlo Dropout...</span>
+  </div>
+</div>
+
+<!-- ERROR -->
+<div class="error-card" id="errorCard"></div>
+
+<!-- RESULT -->
+<div class="result-card" id="resultCard">
+  <div class="result-header">
+    <span class="ticker-badge" id="resTicker">AAPL</span>
+    <span class="predict-date" id="resDate"></span>
+  </div>
+
+  <!-- Giá -->
+  <div class="price-block">
+    <div class="price-box">
+      <div class="label">Giá hiện tại</div>
+      <div class="value" id="resLastClose">—</div>
+    </div>
+    <div class="price-box main">
+      <div class="label">Dự báo (mean)</div>
+      <div class="value" id="resPredPrice">—</div>
+      <div class="change" id="resPredChange">—</div>
+    </div>
+    <div class="price-box">
+      <div class="label">Độ lệch chuẩn</div>
+      <div class="value" id="resStd" style="color:var(--accent2)">—</div>
+      <div class="change" style="color:var(--muted);font-size:10px;font-family:var(--mono)">% thay đổi</div>
+    </div>
+  </div>
+
+  <!-- CI Bar -->
+  <div class="ci-section">
+    <div class="ci-label" id="ciLabel">Khoảng tin cậy 90%</div>
+    <div class="ci-bar-wrap">
+      <div class="ci-fill" id="ciFill" style="left:20%;width:60%"></div>
+      <div class="ci-center" id="ciCenter" style="left:50%"></div>
+    </div>
+    <div class="ci-annotations">
+      <span id="ciLower">—</span>
+      <span style="color:var(--accent);font-size:10px" id="ciMid">mean</span>
+      <span id="ciUpper">—</span>
+    </div>
+  </div>
+
+  <!-- Uncertainty metrics -->
+  <div class="uncertainty-row">
+    <div class="unc-box">
+      <div class="label">Biên dưới</div>
+      <div class="value" id="resLower">—</div>
+      <div class="unc-meter"><div class="unc-fill" id="meterLow" style="width:30%"></div></div>
+    </div>
+    <div class="unc-box">
+      <div class="label">Biên trên</div>
+      <div class="value" id="resUpper">—</div>
+      <div class="unc-meter"><div class="unc-fill" id="meterHigh" style="width:70%"></div></div>
+    </div>
+    <div class="unc-box">
+      <div class="label">Số samples</div>
+      <div class="value" id="resNSamples" style="color:var(--text)">—</div>
+      <div class="unc-meter"><div class="unc-fill" id="meterSamples" style="width:20%"></div></div>
+    </div>
+  </div>
+
+  <!-- Histogram -->
+  <div class="hist-section">
+    <div class="hist-label">// Phân phối dự báo (MC samples)</div>
+    <canvas id="histCanvas"></canvas>
+  </div>
+</div>
+
+<div class="note">
+  ⚠ Kết quả chỉ mang tính tham khảo học thuật. Không dùng để ra quyết định đầu tư thực tế.<br>
+  MC Dropout: mô hình chạy <span id="noteNSamples">100</span> lần với dropout ngẫu nhiên → phân phối xác suất của dự báo.
+</div>
+
+<script>
+  // ── Gọi API ──────────────────────────────────────────────────────
+  async function runPredict() {
+    const ticker     = document.getElementById('tickerInput').value.trim().toUpperCase();
+    const n_samples  = parseInt(document.getElementById('samplesRange').value);
+    const confidence = parseInt(document.getElementById('confRange').value) / 100;
+
+    if (!ticker) return;
+
+    const btn = document.getElementById('predictBtn');
+    const loading = document.getElementById('loading');
+    const errorCard = document.getElementById('errorCard');
+    const resultCard = document.getElementById('resultCard');
+
+    btn.disabled = true;
+    loading.style.display = 'flex';
+    errorCard.style.display = 'none';
+    resultCard.style.display = 'none';
+
+    // Cập nhật loading text theo n_samples
+    document.getElementById('loadingText').textContent =
+      `Đang chạy ${n_samples} MC forward passes...`;
+    document.getElementById('noteNSamples').textContent = n_samples;
+
+    try {
+      const res = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker, n_samples, confidence })
+      });
+      const d = await res.json();
+
+      if (d.error) throw new Error(d.error);
+      renderResult(d);
+
+    } catch (err) {
+      errorCard.textContent = '❌ ' + err.message;
+      errorCard.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      loading.style.display = 'none';
+    }
+  }
+
+  // ── Render kết quả ───────────────────────────────────────────────
+  function renderResult(d) {
+    const card = document.getElementById('resultCard');
+    card.style.display = 'block';
+
+    // Header
+    document.getElementById('resTicker').textContent = d.ticker;
+    document.getElementById('resDate').textContent   = '// ' + d.predict_date;
+
+    // Giá
+    document.getElementById('resLastClose').textContent = '$' + d.last_close;
+    document.getElementById('resPredPrice').textContent = '$' + d.predicted_price;
+
+    const chg = d.predicted_change_pct;
+    const chgEl = document.getElementById('resPredChange');
+    chgEl.textContent = (chg >= 0 ? '▲ +' : '▼ ') + chg + '%';
+    chgEl.className = 'change ' + (chg >= 0 ? 'up' : 'down');
+
+    document.getElementById('resStd').textContent = '±' + d.uncertainty_std + '%';
+
+    // CI label
+    const confPct = Math.round(d.confidence * 100);
+    document.getElementById('ciLabel').textContent = `Khoảng tin cậy ${confPct}%`;
+
+    // CI bar
+    const allReturns = d.distribution;
+    const minR = Math.min(...allReturns);
+    const maxR = Math.max(...allReturns);
+    const range = maxR - minR || 0.001;
+
+    const lFrac = (d.lower_change_pct / 100 - minR) / range * 100;
+    const uFrac = (d.upper_change_pct / 100 - minR) / range * 100;
+    const mFrac = (d.predicted_change_pct / 100 - minR) / range * 100;
+
+    document.getElementById('ciFill').style.left  = lFrac + '%';
+    document.getElementById('ciFill').style.width = (uFrac - lFrac) + '%';
+    document.getElementById('ciCenter').style.left = mFrac + '%';
+
+    document.getElementById('ciLower').textContent = '$' + d.lower_price + ' (' + d.lower_change_pct + '%)';
+    document.getElementById('ciMid').textContent   = '$' + d.predicted_price;
+    document.getElementById('ciUpper').textContent = '$' + d.upper_price + ' (' + d.upper_change_pct + '%)';
+
+    // Biên
+    const loEl = document.getElementById('resLower');
+    const hiEl = document.getElementById('resUpper');
+    loEl.textContent = '$' + d.lower_price;
+    hiEl.textContent = '$' + d.upper_price;
+    loEl.className = 'value ' + (d.lower_change_pct >= 0 ? 'up' : 'down');
+    hiEl.className = 'value ' + (d.upper_change_pct >= 0 ? 'up' : 'down');
+
+    // Samples meter
+    document.getElementById('resNSamples').textContent = d.n_samples;
+    document.getElementById('meterSamples').style.width = (d.n_samples / 500 * 100) + '%';
+
+    // Meter low/high (relative magnitude)
+    const absLow  = Math.abs(d.lower_change_pct);
+    const absHigh = Math.abs(d.upper_change_pct);
+    const maxAbs  = Math.max(absLow, absHigh, 0.01);
+    document.getElementById('meterLow').style.width  = (absLow  / maxAbs * 100) + '%';
+    document.getElementById('meterHigh').style.width = (absHigh / maxAbs * 100) + '%';
+
+    // Histogram
+    drawHistogram(allReturns, d.lower_change_pct / 100, d.upper_change_pct / 100, d.predicted_change_pct / 100);
+  }
+
+  // ── Vẽ histogram ─────────────────────────────────────────────────
+  function drawHistogram(samples, lower, upper, mean) {
+    const canvas = document.getElementById('histCanvas');
+    const dpr    = window.devicePixelRatio || 1;
+    const W      = canvas.offsetWidth;
+    const H      = 120;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const N_BINS = 30;
+    const minV = Math.min(...samples);
+    const maxV = Math.max(...samples);
+    const binW = (maxV - minV) / N_BINS || 0.001;
+
+    // Count bins
+    const bins = new Array(N_BINS).fill(0);
+    samples.forEach(v => {
+      let i = Math.floor((v - minV) / binW);
+      if (i >= N_BINS) i = N_BINS - 1;
+      bins[i]++;
+    });
+    const maxBin = Math.max(...bins);
+
+    // Background
+    ctx.fillStyle = '#0a0a0f';
+    ctx.fillRect(0, 0, W, H);
+
+    const padL = 8, padR = 8, padT = 8, padB = 20;
+    const chartW = W - padL - padR;
+    const chartH = H - padT - padB;
+    const barW   = chartW / N_BINS;
+
+    // Draw bins
+    bins.forEach((count, i) => {
+      const x      = padL + i * barW;
+      const h      = (count / maxBin) * chartH;
+      const binMin = minV + i * binW;
+      const binMax = binMin + binW;
+
+      // Color: green if in CI, muted otherwise
+      const inCI = binMin <= upper && binMax >= lower;
+      ctx.fillStyle = inCI ? 'rgba(0,255,136,0.55)' : 'rgba(255,255,255,0.07)';
+      ctx.fillRect(x + 1, padT + chartH - h, barW - 2, h);
+    });
+
+    // Mean line
+    const meanX = padL + ((mean - minV) / (maxV - minV)) * chartW;
+    ctx.beginPath();
+    ctx.moveTo(meanX, padT);
+    ctx.lineTo(meanX, padT + chartH);
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth   = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // CI bounds
+    [lower, upper].forEach(v => {
+      const x = padL + ((v - minV) / (maxV - minV)) * chartW;
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, padT + chartH);
+      ctx.strokeStyle = 'rgba(0,255,136,0.35)';
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([2, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // X-axis labels
+    ctx.fillStyle = '#5a5a7a';
+    ctx.font      = `${9 * dpr / dpr}px 'Space Mono', monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText((minV * 100).toFixed(2) + '%', padL, H - 4);
+    ctx.textAlign = 'right';
+    ctx.fillText((maxV * 100).toFixed(2) + '%', W - padR, H - 4);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText((mean * 100).toFixed(2) + '%', meanX, H - 4);
+  }
+
+  // Enter key
+  document.getElementById('tickerInput')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') runPredict(); });
+
+  // Demo với dữ liệu giả khi không có backend
+  window.addEventListener('DOMContentLoaded', () => {
+    // Nếu muốn test UI mà không có Flask, uncomment dòng dưới:
+    // demoRender();
+  });
+
+  function demoRender() {
+    // Tạo phân phối giả Normal(0.008, 0.003)
+    function randn() {
+      let u = 0, v = 0;
+      while (!u) u = Math.random();
+      while (!v) v = Math.random();
+      return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v);
+    }
+    const samples = Array.from({length: 100}, () => 0.008 + randn() * 0.003);
+    const mean    = samples.reduce((a,b)=>a+b,0)/samples.length;
+    const sorted  = [...samples].sort((a,b)=>a-b);
+    const lower   = sorted[Math.floor(sorted.length * 0.05)];
+    const upper   = sorted[Math.floor(sorted.length * 0.95)];
+    const std     = Math.sqrt(samples.reduce((a,b)=>a+(b-mean)**2,0)/samples.length);
+
+    renderResult({
+      ticker: 'AAPL',
+      predict_date: '21/05/2026',
+      last_close: 189.50,
+      predicted_price: (189.50 * (1 + mean)).toFixed(2),
+      predicted_change_pct: (mean * 100).toFixed(2),
+      lower_price: (189.50 * (1 + lower)).toFixed(2),
+      upper_price: (189.50 * (1 + upper)).toFixed(2),
+      lower_change_pct: (lower * 100).toFixed(2),
+      upper_change_pct: (upper * 100).toFixed(2),
+      uncertainty_std: (std * 100).toFixed(4),
+      n_samples: 100,
+      confidence: 0.90,
+      distribution: samples
+    });
+  }
+
+  // Chạy demo ngay để xem UI (khi không có backend)
+  demoRender();
+</script>
 </body>
 </html>

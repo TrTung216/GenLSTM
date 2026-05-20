@@ -1,0 +1,13 @@
+{
+  "input_size": 17,
+  "hidden_layer_size": 128,
+  "dropout_rate": 0.05,
+  "cnn_filters": 64,
+  "num_layers": 1,
+  "window_size": 60,
+  "fitness_weights": {
+    "w_rmse": 0.4,
+    "w_direction": 0.4,
+    "w_drawdown": 0.2
+  }
+}

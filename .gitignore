@@ -19,3 +19,7 @@ __pycache__/
 
 # Dữ liệu tải về
 *.csv
+Note.md
+
+logs/
+Reports/
