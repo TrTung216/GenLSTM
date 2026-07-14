@@ -1,21 +1,3 @@
-"""
-fitness_function.py — Hàm Fitness kết hợp cho GA-LSTM
-=======================================================
-
-SO SÁNH VỚI BẢN GỐC:
-  Bản gốc : fitness = 1 / (MSE + 0.1*(1 - R2))
-             → chỉ đo sai số tuyệt đối, không quan tâm chiều tăng/giảm
-
-  Bản mới : fitness = w1 * rmse_score
-                    + w2 * directional_accuracy
-                    + w3 * drawdown_score
-             → đánh giá toàn diện hơn, phản ánh thực tế đầu tư
-
-Các thành phần:
-  rmse_score           : 1 / (1 + RMSE)          — sai số tuyệt đối, càng nhỏ càng tốt
-  directional_accuracy : % dự đoán đúng chiều     — quan trọng nhất với trader
-  drawdown_score       : 1 - max_drawdown         — phạt khi mô hình sai liên tiếp nhiều lần
-"""
 
 import torch
 import torch.nn as nn
@@ -64,16 +46,6 @@ class CNN_LSTM(nn.Module):
 # ==========================================
 
 def compute_rmse_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """
-    Thành phần 1: RMSE Score — đo sai số tuyệt đối.
-
-    Công thức: 1 / (1 + RMSE)
-    Khoảng giá trị: (0, 1] — RMSE càng nhỏ → score càng gần 1
-
-    Tại sao không dùng thẳng RMSE?
-      GA maximize fitness, nên cần đảo chiều: thấp RMSE = cao score.
-      Chia cho (1 + RMSE) thay vì 1/RMSE để tránh giá trị explode khi RMSE → 0.
-    """
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     return 1.0 / (1.0 + rmse)
 
@@ -183,23 +155,6 @@ def combined_fitness(
     verbose          : bool  = False,
     return_components: bool  = False,
 ):
-    """
-    Tính fitness kết hợp từ 3 thành phần.
-
-    Args:
-        y_true            : giá trị thực tế
-        y_pred            : giá trị dự báo
-        w_rmse            : trọng số RMSE score
-        w_direction       : trọng số Directional Accuracy
-        w_drawdown        : trọng số Drawdown Score
-        verbose           : in chi tiết từng thành phần
-        return_components : nếu True, trả về (fitness, dict{rmse,da,dd})
-                            nếu False, chỉ trả về fitness (tương thích ngược)
-
-    Returns:
-        fitness             : float ∈ [0,1], GA maximize
-        components (opt.)   : dict {rmse_score, da_score, dd_score}
-    """
     assert abs(w_rmse + w_direction + w_drawdown - 1.0) < 1e-6, \
         "Tổng trọng số phải = 1.0"
 
@@ -236,15 +191,6 @@ def evaluate_fitness(
     verbose          : bool  = False,
     return_components: bool  = False,
 ):
-    """
-    Hàm chính được GA gọi để đánh giá một chromosome.
-
-    Chromosome: [units, dropout_rate, lr, batch_size, window_size, cnn_filters, num_layers]
-
-    Args:
-        return_components : nếu True, trả về (fitness, dict{rmse_score,da_score,dd_score})
-                            nếu False, chỉ trả về fitness (tương thích ngược)
-    """
     units, dropout_rate, lr, batch_size, window_size, cnn_filters, num_layers = chromosome
 
     units       = int(units)
@@ -382,13 +328,6 @@ def evaluate_fitness_legacy(chromosome, X_train, y_train, X_val, y_val):
 
 
 def compare_fitness_functions(chromosome, X_train, y_train, X_val, y_val):
-    """
-    Chạy cả 2 hàm fitness trên cùng một chromosome và in kết quả so sánh.
-    Dùng để validate bản mới trước khi deploy.
-
-    Ví dụ dùng:
-        compare_fitness_functions(best_chromosome, X_train, y_train, X_val, y_val)
-    """
     print("=" * 50)
     print("  FITNESS FUNCTION COMPARISON")
     print("=" * 50)

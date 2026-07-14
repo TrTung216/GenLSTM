@@ -37,8 +37,6 @@ print(f"Current Device: {torch.cuda.get_device_name(0) if torch.cuda.is_availabl
 
 TICKER_SYMBOL = 'AAPL'
 START_DATE    = '2015-01-01'
-
-# ── [MỚI] Trọng số Fitness — điều chỉnh tại đây, không cần sửa sâu ──────────
 # Tổng phải = 1.0
 # Gợi ý:
 #   Nghiên cứu học thuật : W_RMSE=0.5, W_DIR=0.3, W_DD=0.2
