@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 import json
 
+from src.data_prep import FEATURE_COLS, add_technical_indicators, compute_cmf
+
 app = Flask(__name__)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -178,17 +180,8 @@ def predict_with_uncertainty(input_tensor, n_samples: int = 100, confidence: flo
 # ==========================================
 # 4. TIỀN XỬ LÝ DỮ LIỆU
 # ==========================================
-# Cập nhật danh sách biến toàn cục trong app.py để đồng nhất cấu trúc
-FEATURE_COLS = [
-    'Open', 'High', 'Low', 'Close', 'Volume', 
-    'SMA_10', 'SMA_20', 'EMA_20', 'RSI_14', 
-    'MACD', 'Signal_Line', 'BB_Middle', 'BB_Upper', 'BB_Lower',
-    'VIX', 'TNX', 'Sentiment_Score'
-]
-
 def build_features_raw(ticker: str):
-    """Tải dữ liệu từ yfinance và tính chỉ báo kỹ thuật + Vĩ mô thực tế (Inference)."""
-    # Tải dư ra 130 ngày để đảm bảo sau khi tính toán các đường MA(20) không bị mất mẫu
+    """Tải dữ liệu và tạo feature inference đồng nhất với pipeline training."""
     stock = yf.download(ticker, period="130d", progress=False)
     if stock.empty:
         return None, None
@@ -196,50 +189,34 @@ def build_features_raw(ticker: str):
     if isinstance(stock.columns, pd.MultiIndex):
         stock.columns = stock.columns.get_level_values(0)
 
+    # Đồng nhất với prepare_data_from_df(): log Volume trước khi tạo feature.
     stock['Volume'] = np.log1p(stock['Volume'])
+    stock = add_technical_indicators(stock)
 
-    # --- Chỉ báo kỹ thuật gốc ---
-    stock['SMA_10'] = stock['Close'].rolling(10).mean()
-    stock['SMA_20'] = stock['Close'].rolling(20).mean()
-    stock['EMA_20'] = stock['Close'].ewm(span=20, adjust=False).mean()
-
-    delta = stock['Close'].diff()
-    gain  = delta.clip(lower=0).rolling(14).mean()
-    loss  = (-delta.clip(upper=0)).rolling(14).mean()
-    stock['RSI_14'] = 100 - (100 / (1 + gain / (loss + 1e-9)))
-
-    ema12 = stock['Close'].ewm(span=12, adjust=False).mean()
-    ema26 = stock['Close'].ewm(span=26, adjust=False).mean()
-    stock['MACD']        = ema12 - ema26
-    stock['Signal_Line'] = stock['MACD'].ewm(span=9, adjust=False).mean()
-
-    std20 = stock['Close'].rolling(20).std()
-    stock['BB_Middle'] = stock['Close'].rolling(20).mean()
-    stock['BB_Upper']  = stock['BB_Middle'] + std20 * 2
-    stock['BB_Lower']  = stock['BB_Middle'] - std20 * 2
-
-    # ── [MỚI] ĐỒNG BỘ DỮ LIỆU VĨ MÔ THỜI GIAN THỰC ĐỂ INFERENCE ───────────
     try:
-        # Tải chỉ số vĩ mô thời gian thực cho chuỗi ngày tương ứng
         macro_data = yf.download(['^VIX', '^TNX'], period="130d", progress=False)
         if isinstance(macro_data.columns, pd.MultiIndex):
             macro_data.columns = [f"{col[0]}_{col[1]}" for col in macro_data.columns]
-            
-        stock['VIX'] = macro_data['Close_^VIX']
-        stock['TNX'] = macro_data['Close_^TNX']
-    except Exception as e:
-        logger.warning(f"Không tải được dữ liệu vĩ mô thời gian thực, đang dùng fallback. Chi tiết: {e}")
-        stock['VIX'] = 20.0   # Điểm trung bình lịch sử của VIX
-        stock['TNX'] = 4.0    # Điểm trung bình lãi suất
 
-    # Giả lập điểm tin tức hoặc đọc từ API tin tức bên ngoài (Ví dụ: tích hợp Finnhub)
-    # Ví dụ mẫu: Lấy ngẫu nhiên từ [-0.2, 0.4] hoặc bạn có thể gán cứng 0.0 (Trung lập)
-    stock['Sentiment_Score'] = 0.0 
-    
-    # Điền khuyết dữ liệu nếu lệch múi giờ giao dịch
-    stock = stock.ffill().bfill()
-    stock.dropna(inplace=True)
-    
+        stock['VIX'] = macro_data.get('Close_^VIX')
+        stock['TNX'] = macro_data.get('Close_^TNX')
+    except Exception as e:
+        logger.warning(
+            f"Không tải được dữ liệu vĩ mô thời gian thực, đang dùng fallback. Chi tiết: {e}"
+        )
+        stock['VIX'] = 20.0
+        stock['TNX'] = 4.0
+
+    # Đồng nhất với training: CMF proxy thay vì hardcode Sentiment_Score = 0.0.
+    stock['Sentiment_Score'] = compute_cmf(stock, period=20)
+
+    # Chỉ fill dữ liệu macro; indicator/CMF phải giữ đúng warm-up giống training.
+    stock[['VIX', 'TNX']] = stock[['VIX', 'TNX']].ffill().bfill()
+    stock.dropna(subset=FEATURE_COLS, inplace=True)
+
+    if stock.empty:
+        return None, None
+
     return stock, float(stock['Close'].iloc[-1])
 
 
