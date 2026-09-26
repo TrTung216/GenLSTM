@@ -17,7 +17,7 @@ import json
 import os
 import joblib
 import pandas as pd
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 import yfinance as yf
 
 from data_prep import prepare_data_from_df, fetch_macro_data
-from fitness_function import evaluate_fitness, CNN_LSTM, device
+from fitness_function import evaluate_fitness, CNN_LSTM, device, compute_directional_accuracy
 
 print(f"CUDA Available: {torch.cuda.is_available()}")
 print(f"Current Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
@@ -412,12 +412,48 @@ if __name__ == "__main__":
         X_test_t = torch.tensor(X_test, dtype=torch.float32).to(device)
         with torch.no_grad():
             preds = final_model(X_test_t).cpu().numpy()
-            rmse  = np.sqrt(mean_squared_error(
-                scaler_y.inverse_transform(y_test.reshape(-1, 1)),
-                scaler_y.inverse_transform(preds.reshape(-1, 1))
-            ))
 
-        print(f"\n  RMSE cuối cùng (USD): {rmse:.4f}")
+        # Target của mô hình là daily return, nên metric được báo cáo trên return,
+        # không phải USD.
+        y_test_return = scaler_y.inverse_transform(y_test.reshape(-1, 1)).flatten()
+        pred_return   = scaler_y.inverse_transform(preds.reshape(-1, 1)).flatten()
+
+        rmse = np.sqrt(mean_squared_error(y_test_return, pred_return))
+        mae  = mean_absolute_error(y_test_return, pred_return)
+        directional_accuracy = compute_directional_accuracy(
+            y_test_return,
+            pred_return,
+        )
+
+        print(f"\n  RMSE (return): {rmse:.6f}")
+        print(f"  MAE  (return): {mae:.6f}")
+        print(f"  Directional Accuracy: {directional_accuracy * 100:.2f}%")
+
+        # Lưu kết quả experiment thực tế để benchmark/reproduce.
+        os.makedirs("experiments", exist_ok=True)
+        result_row = pd.DataFrame([{
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "ticker": TICKER_SYMBOL,
+            "model": "GA-WOA CNN-LSTM-Attention",
+            "rmse_return": float(rmse),
+            "mae_return": float(mae),
+            "directional_accuracy": float(directional_accuracy),
+            "units": int(f_units),
+            "dropout": float(f_dropout),
+            "learning_rate": float(f_lr),
+            "batch_size": int(f_batch),
+            "window_size": int(f_window),
+            "cnn_filters": int(f_filters),
+            "num_layers": int(f_layers),
+        }])
+        results_path = "experiments/results.csv"
+        result_row.to_csv(
+            results_path,
+            mode="a",
+            header=not os.path.exists(results_path),
+            index=False,
+        )
+        print(f"  Đã ghi kết quả vào {results_path}")
 
         # Lưu config + model
         model_config = {
