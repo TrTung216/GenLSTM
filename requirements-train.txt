@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Training / research
+matplotlib>=3.8.0
+pandas-market-calendars>=4.4.0
