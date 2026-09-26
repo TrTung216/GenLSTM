@@ -55,49 +55,34 @@ def compute_directional_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> floa
 
 
 def compute_drawdown_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Penalize long sequences of wrong predicted return directions.
+
+    Since y_true/y_pred are daily returns, trading direction is determined by
+    the sign of each return rather than the difference between adjacent returns.
     """
-    Thành phần 3: Drawdown Score — phạt khi mô hình sai chiều liên tiếp.
+    y_true = np.asarray(y_true).flatten()
+    y_pred = np.asarray(y_pred).flatten()
 
-    Cơ chế:
-      - Tạo chuỗi PnL giả định: +1 nếu đúng chiều, -1 nếu sai chiều
-      - Tính cumulative PnL curve
-      - Max Drawdown = mức sụt giảm lớn nhất từ đỉnh → đáy của curve
-      - drawdown_score = 1 - max_drawdown (normalize về [0,1])
-
-    Khoảng giá trị: [0, 1] — max_drawdown = 0 → score = 1 (hoàn hảo)
-
-    Tại sao cần?
-      DA chỉ đo trung bình đúng/sai, không phân biệt:
-        Mô hình A: sai rải rác (ít nguy hiểm)
-        Mô hình B: sai 10 lần liên tiếp (cháy tài khoản)
-      Cả hai có thể cùng DA = 50%, nhưng B nguy hiểm hơn nhiều.
-      Drawdown score phân biệt được điều này.
-    """
-    if len(y_true) < 2:
+    if len(y_true) == 0 or len(y_true) != len(y_pred):
         return 1.0
 
-    y_true = y_true.flatten()
-    y_pred = y_pred.flatten()
+    true_dir = np.sign(y_true)
+    pred_dir = np.sign(y_pred)
 
-    true_dir = np.sign(np.diff(y_true))
-    pred_dir = np.sign(np.diff(y_pred))
+    # +1 for correct direction, -1 for wrong direction, 0 for flat true return.
+    pnl = np.where(
+        true_dir == 0,
+        0,
+        np.where(true_dir == pred_dir, 1, -1),
+    )
 
-    # PnL giả định: +1 đúng chiều, -1 sai chiều, 0 bỏ qua flat
-    pnl = np.where(true_dir == 0, 0,
-          np.where(true_dir == pred_dir, 1, -1))
-
-    # Cumulative PnL curve
     cum_pnl = np.cumsum(pnl)
+    running_max = np.maximum.accumulate(np.concatenate(([0], cum_pnl)))[1:]
+    drawdowns = running_max - cum_pnl
+    max_dd = drawdowns.max() if len(drawdowns) else 0
 
-    # Max drawdown: mức giảm lớn nhất từ đỉnh tích lũy
-    running_max = np.maximum.accumulate(cum_pnl)
-    drawdowns   = running_max - cum_pnl
-    max_dd      = drawdowns.max()
-
-    # Normalize: chia cho số bước để về [0, 1]
-    max_possible_dd = len(pnl)  # worst case: sai hết
-    normalized_dd   = max_dd / max_possible_dd if max_possible_dd > 0 else 0
-
+    max_possible_dd = len(pnl)
+    normalized_dd = max_dd / max_possible_dd if max_possible_dd > 0 else 0
     return float(1.0 - normalized_dd)
 
 
