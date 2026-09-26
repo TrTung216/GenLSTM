@@ -12,7 +12,13 @@ This directory stores reproducible outputs from model training and evaluation.
   - directional accuracy
   - selected GA-WOA hyperparameters
   - timestamp
-- `plots/ga_convergence.png` — GA-WOA convergence plot generated during optimization.
+- `ga_generation_stats.csv` — per-generation best/mean/std fitness and chromosome diversity.
+- `benchmark_results.csv` — one row per model and random seed.
+- `benchmark_summary.csv` — model metrics aggregated as mean and sample standard deviation.
+- `plots/ga_convergence.png` — GA-WOA convergence and component plot.
+- `plots/ga_best_fitness.png`, `ga_mean_fitness.png`, and
+  `ga_population_diversity.png` — convergence diagnostics.
+- `plots/model_*_comparison.png` — multi-seed benchmark comparisons with error bars.
 
 ## Notes
 
@@ -32,5 +38,16 @@ python -m src.benchmark
 ```
 
 This evaluates LSTM, CNN-LSTM, CNN-LSTM-Attention, and the GA-WOA configured
-CNN-LSTM-Attention model on the same preprocessing pipeline and temporal split.
-The output is written to `experiments/benchmark_results.csv`.
+CNN-LSTM-Attention model with seeds 42, 123, 2026, 7, and 99. Each run uses
+explicit chronological train/validation/test partitions. Early stopping sees
+only validation loss and restores the best validation checkpoint; the test
+partition is evaluated only after training. Outputs are generated in
+`experiments/benchmark_results.csv`, `experiments/benchmark_summary.csv`, and
+`experiments/plots/`.
+
+GA-WOA chromosome fitness is averaged across three expanding walk-forward
+folds drawn exclusively from the development partition. Run it with:
+
+```bash
+python -m src.ga_lstm
+```

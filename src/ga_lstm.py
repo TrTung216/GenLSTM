@@ -15,19 +15,27 @@ import math
 import matplotlib.pyplot as plt
 import json
 import os
-import joblib
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import pandas_market_calendars as mcal
-from torch.utils.data import DataLoader, TensorDataset
 from datetime import datetime, timedelta
 import yfinance as yf
 
-from data_prep import prepare_data_from_df, fetch_macro_data
-from fitness_function import evaluate_fitness, CNN_LSTM, device, compute_directional_accuracy
+try:
+    from src.data_prep import prepare_train_validation_test, fetch_macro_data
+    from src.fitness_function import (
+        evaluate_walk_forward_fitness, CNN_LSTM, device,
+        compute_directional_accuracy,
+    )
+    from src.training import train_with_early_stopping
+except ModuleNotFoundError:
+    from data_prep import prepare_train_validation_test, fetch_macro_data
+    from fitness_function import (
+        evaluate_walk_forward_fitness, CNN_LSTM, device,
+        compute_directional_accuracy,
+    )
+    from training import train_with_early_stopping
 
 print(f"CUDA Available: {torch.cuda.is_available()}")
 print(f"Current Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
@@ -144,8 +152,9 @@ def woa_refinement(chromosome, best_chromosome, current_gen, max_gen, spaces):
         else:
             D_prime = abs(best_chromosome[i] - chromosome[i])
             b       = 1.0
-            l       = random.uniform(-1, 1)
-            new_val = D_prime * math.exp(b * l) * math.cos(2 * math.pi * l) + best_chromosome[i]
+            spiral = random.uniform(-1, 1)
+            new_val = (D_prime * math.exp(b * spiral)
+                       * math.cos(2 * math.pi * spiral) + best_chromosome[i])
 
         if i == 1:   # Dropout — continuous
             new_chrom[i] = max(0.0, min(0.5, round(new_val, 2)))
@@ -176,6 +185,7 @@ def run_ga_lstm(df_raw):
     best_chromosome_overall = None
     best_fitness_overall    = -1
     history_best_fitness    = []
+    generation_stats        = []
 
     # [MỚI] Lưu lịch sử từng thành phần fitness để vẽ sau
     history_components = []   # list of dict {rmse, da, dd} mỗi gen
@@ -191,31 +201,27 @@ def run_ga_lstm(df_raw):
         for i, chromosome in enumerate(population):
             # window_size = gene[4]; truyền ticker để tải VIX/TNX đúng mã
             # [FIX 1] df_raw đã có VIX/TNX từ trước — không cần truyền ticker
-            data_package = prepare_data_from_df(df_raw, chromosome[4])
+            data_package = prepare_train_validation_test(
+                df_raw, chromosome[4], scaler_fit_fraction=0.5,
+            )
 
             if data_package[0] is None or len(data_package[0]) == 0:
                 fitness = 1e-6
                 gen_components.append(None)
             else:
-                X_train, y_train, X_test, y_test, _ = data_package
-                val_size = int(len(X_train) * 0.2)
+                X_train, y_train, X_val, y_val, _, _, _, _ = data_package
+                X_development = np.concatenate((X_train, X_val))
+                y_development = np.concatenate((y_train, y_val))
 
-                if val_size <= 0:
+                if len(X_development) < 6:
                     fitness = 1e-6
                     gen_components.append(None)
                 else:
-                    X_train_ga = X_train[:-val_size]
-                    y_train_ga = y_train[:-val_size]
-                    X_val_ga   = X_train[-val_size:]
-                    y_val_ga   = y_train[-val_size:]
-
-                    # ── [THAY ĐỔI CHÍNH] Gọi fitness mới với trọng số ──────
-                    fitness, components = evaluate_fitness(
+                    fitness, components = evaluate_walk_forward_fitness(
                         chromosome,
-                        X_train_ga, y_train_ga,
-                        X_val_ga,   y_val_ga,
+                        X_development, y_development,
+                        n_splits=3,
                         **FITNESS_WEIGHTS,
-                        return_components=True,   # [MỚI] trả về breakdown
                     )
                     gen_components.append(components)
 
@@ -233,6 +239,15 @@ def run_ga_lstm(df_raw):
             best_chromosome_overall = copy.deepcopy(population[0])
 
         history_best_fitness.append(best_fitness_overall)
+        generation_stats.append({
+            "generation": gen + 1,
+            "best_fitness": float(fitness_scores[0]),
+            "best_fitness_overall": float(best_fitness_overall),
+            "mean_fitness": float(np.mean(fitness_scores)),
+            "std_fitness": float(np.std(fitness_scores)),
+            "unique_chromosomes": len({tuple(chromosome) for chromosome in population}),
+            "population_size": len(population),
+        })
 
         # [MỚI] Lưu components của cá thể tốt nhất gen này
         if gen_components[0] is not None:
@@ -264,7 +279,9 @@ def run_ga_lstm(df_raw):
 
         population = next_gen[:POPULATION_SIZE]
 
-    return best_chromosome_overall, history_best_fitness, history_components
+    os.makedirs("experiments", exist_ok=True)
+    pd.DataFrame(generation_stats).to_csv("experiments/ga_generation_stats.csv", index=False)
+    return best_chromosome_overall, history_best_fitness, history_components, generation_stats
 
 
 def _log_individual(idx, chromosome, fitness, components):
@@ -286,7 +303,7 @@ def _log_individual(idx, chromosome, fitness, components):
 # 5. VẼ ĐỒ THỊ HỘI TỤ — thêm subplot components
 # ==========================================
 
-def plot_convergence(history_best_fitness, history_components):
+def plot_convergence(history_best_fitness, history_components, generation_stats):
     """
     Vẽ 2 subplot:
       - Trên: đường hội tụ fitness tổng (như bản gốc)
@@ -325,8 +342,23 @@ def plot_convergence(history_best_fitness, history_components):
     plt.tight_layout()
     os.makedirs("experiments/plots", exist_ok=True)
     plt.savefig("experiments/plots/ga_convergence.png", dpi=150)
-    plt.show()
+    plt.close(fig)
     print("Đã lưu experiments/plots/ga_convergence.png")
+
+    stats = pd.DataFrame(generation_stats)
+    plots = {
+        "ga_best_fitness.png": ("best_fitness_overall", "Best fitness"),
+        "ga_mean_fitness.png": ("mean_fitness", "Mean fitness"),
+        "ga_population_diversity.png": ("unique_chromosomes", "Unique chromosomes"),
+    }
+    for filename, (column, ylabel) in plots.items():
+        figure, axis = plt.subplots(figsize=(8, 4))
+        axis.plot(stats["generation"], stats[column], marker="o")
+        axis.set(xlabel="Generation", ylabel=ylabel, title=ylabel)
+        axis.grid(True, alpha=0.3)
+        figure.tight_layout()
+        figure.savefig(os.path.join("experiments/plots", filename), dpi=150)
+        plt.close(figure)
 
 
 # ==========================================
@@ -354,21 +386,21 @@ if __name__ == "__main__":
         df_raw['TNX'] = macro_df['TNX']
         print(f"  VIX/TNX đã merge vào df_raw. NaN còn lại: {df_raw[['VIX','TNX']].isna().sum().sum()}")
 
-        best_params, fitness_history, comp_history = run_ga_lstm(df_raw)
+        best_params, fitness_history, comp_history, generation_stats = run_ga_lstm(df_raw)
 
         # Vẽ convergence plot mới (có breakdown components)
-        plot_convergence(fitness_history, comp_history)
+        plot_convergence(fitness_history, comp_history, generation_stats)
 
         f_units, f_dropout, f_lr, f_batch, f_window, f_filters, f_layers = best_params
 
         print(f"\n{'='*55}")
-        print(f"  Best chromosome tìm được:")
+        print("  Best chromosome tìm được:")
         print(f"    Units={f_units}, Dropout={f_dropout}, LR={f_lr}")
         print(f"    Batch={f_batch}, Window={f_window}, Filters={f_filters}, Layers={f_layers}")
         print(f"{'='*55}")
 
         print("\nĐang huấn luyện mô hình cuối cùng...")
-        X_train, y_train, X_test, y_test, scaler_y = prepare_data_from_df(
+        X_train, y_train, X_val, y_val, X_test, y_test, _, scaler_y = prepare_train_validation_test(
             df_raw, f_window, save_scalers=True   # lưu scaler_x/y.pkl
         )
         num_features = X_train.shape[2]   # (n, window, features) → dim 2
@@ -381,32 +413,15 @@ if __name__ == "__main__":
             num_layers        = f_layers,
         ).to(device)
 
-        loss_fn   = nn.HuberLoss(delta=1.0)
-        optimizer = optim.Adam(final_model.parameters(), lr=f_lr)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=7, factor=0.5)
-
-        X_train_t   = torch.tensor(X_train, dtype=torch.float32)
-        y_train_t   = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
-        train_loader = DataLoader(
-            TensorDataset(X_train_t, y_train_t),
-            batch_size=f_batch, shuffle=False, pin_memory=True
+        training_result = train_with_early_stopping(
+            final_model, X_train, y_train, X_val, y_val,
+            f_lr, f_batch, device, max_epochs=120, patience=15,
         )
-
-        for epoch in range(120):
-            final_model.train()
-            total_loss = 0
-            for seq, labels in train_loader:
-                seq, labels = seq.to(device), labels.to(device)
-                optimizer.zero_grad()
-                loss = loss_fn(final_model(seq), labels)
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-
-            avg_loss = total_loss / len(train_loader)
-            scheduler.step(avg_loss)
-            if (epoch + 1) % 20 == 0:
-                print(f"  Epoch {epoch+1}/120, Loss: {avg_loss:.6f}")
+        final_model = training_result.model
+        print(
+            f"  Restored epoch {training_result.best_epoch}; "
+            f"stopped after {training_result.epochs_ran} epochs"
+        )
 
         final_model.eval()
         X_test_t = torch.tensor(X_test, dtype=torch.float32).to(device)
@@ -445,6 +460,7 @@ if __name__ == "__main__":
             "window_size": int(f_window),
             "cnn_filters": int(f_filters),
             "num_layers": int(f_layers),
+            "best_epoch": training_result.best_epoch,
         }])
         results_path = "experiments/results.csv"
         result_row.to_csv(

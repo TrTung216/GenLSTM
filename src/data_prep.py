@@ -153,7 +153,74 @@ def prepare_data_from_df(df_input, window_size=16, save_scalers=False):
 
     # ── Train / Test Split 80/20 ─────────────────────────────────────────────
     split   = int(len(X) * 0.8)
-    X_train = X[:split];  y_train = y[:split]
-    X_test  = X[split:];  y_test  = y[split:]
+    X_train = X[:split]
+    y_train = y[:split]
+    X_test = X[split:]
+    y_test = y[split:]
 
     return X_train, y_train, X_test, y_test, scaler_y
+
+
+def prepare_train_validation_test(
+    df_input,
+    window_size=16,
+    validation_fraction=0.15,
+    test_fraction=0.20,
+    save_scalers=False,
+    scaler_fit_fraction=None,
+):
+    """Build explicit chronological partitions with train-only scalers.
+
+    The scaler cut is based on the target position of each sequence, rather
+    than an approximate raw-data percentage.  Validation and test statistics
+    therefore never influence fitted preprocessing parameters.
+    """
+    from src.validation import temporal_split_indices
+
+    if df_input is None or df_input.empty:
+        return (None,) * 8
+    df = df_input.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df['Volume'] = np.log1p(df['Volume'])
+    df = add_technical_indicators(df)
+    df['Sentiment_Score'] = compute_cmf(df, period=20)
+    df['Target_Return'] = df['Close'].pct_change()
+    df.dropna(inplace=True)
+    n_sequences = len(df) - window_size
+    if n_sequences < 3:
+        return (None,) * 8
+
+    split = temporal_split_indices(n_sequences, validation_fraction, test_fraction)
+    # A sequence numbered k predicts raw row window_size + k. By default the
+    # scaler sees the outer training partition. During walk-forward search the
+    # caller supplies the initial-fold fraction so even the first validation
+    # fold remains unseen by preprocessing.
+    if scaler_fit_fraction is None:
+        scaler_sequence_end = split.train.stop
+    else:
+        if not 0 < scaler_fit_fraction <= 1:
+            raise ValueError("scaler_fit_fraction must be in (0, 1]")
+        development_end = split.validation.stop
+        scaler_sequence_end = max(1, int(development_end * scaler_fit_fraction))
+    train_raw_end = window_size + scaler_sequence_end
+    features = df[FEATURE_COLS].to_numpy()
+    target = df['Target_Return'].to_numpy().reshape(-1, 1)
+    scaler_x, scaler_y = RobustScaler(), StandardScaler()
+    scaler_x.fit(features[:train_raw_end])
+    scaler_y.fit(target[:train_raw_end])
+    features = scaler_x.transform(features)
+    target = scaler_y.transform(target).flatten()
+
+    X = np.asarray([features[i - window_size:i] for i in range(window_size, len(df))])
+    y = target[window_size:]
+    if save_scalers:
+        os.makedirs("artifacts", exist_ok=True)
+        joblib.dump(scaler_x, "artifacts/scaler_x.pkl")
+        joblib.dump(scaler_y, "artifacts/scaler_y.pkl")
+    return (
+        X[split.train], y[split.train],
+        X[split.validation], y[split.validation],
+        X[split.test], y[split.test],
+        scaler_x, scaler_y,
+    )
