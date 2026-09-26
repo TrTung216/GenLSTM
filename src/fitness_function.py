@@ -6,7 +6,11 @@ from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 from sklearn.metrics import mean_squared_error, r2_score
 
-from src.model import CNN_LSTM
+try:
+    from src.model import CNN_LSTM
+except ModuleNotFoundError:
+    # Hỗ trợ chạy trực tiếp: python src/ga_lstm.py
+    from model import CNN_LSTM
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
