@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import joblib
+import os
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
 # Định nghĩa danh sách các cột đặc trưng mới (Mở rộng từ 14 lên 17 features)
@@ -137,8 +138,9 @@ def prepare_data_from_df(df_input, window_size=16, save_scalers=False):
     # ─────────────────────────────────────────────────────────────────────────
 
     if save_scalers:
-        joblib.dump(scaler_x, 'scaler_x.pkl')
-        joblib.dump(scaler_y, 'scaler_y.pkl')
+        os.makedirs("artifacts", exist_ok=True)
+        joblib.dump(scaler_x, "artifacts/scaler_x.pkl")
+        joblib.dump(scaler_y, "artifacts/scaler_y.pkl")
 
     # ── Sliding Window → 3D (n, window, features) ────────────────────────────
     X, y = [], []
