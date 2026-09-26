@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 try:
     from src.model import CNN_LSTM
@@ -29,6 +29,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def compute_rmse_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     return 1.0 / (1.0 + rmse)
+
+
+def compute_mae_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    mae = mean_absolute_error(y_true, y_pred)
+    return 1.0 / (1.0 + mae)
 
 
 def compute_directional_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -103,38 +108,58 @@ def compute_drawdown_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 #   Ứng dụng giao dịch   : W_RMSE=0.3, W_DIR=0.5, W_DD=0.2
 #   Quản trị rủi ro      : W_RMSE=0.3, W_DIR=0.3, W_DD=0.4
 W_RMSE      = 0.40
+W_MAE       = 0.00
 W_DIRECTION = 0.40
 W_DRAWDOWN  = 0.20
+
+FITNESS_PROFILES = {
+    # Regression-only objective: does adding a second error metric improve
+    # magnitude forecasting without explicitly rewarding direction?
+    "A": {"w_rmse": 0.50, "w_mae": 0.50, "w_direction": 0.00, "w_drawdown": 0.00},
+    # Accuracy + direction, without the synthetic drawdown component.
+    "B": {"w_rmse": 0.50, "w_mae": 0.00, "w_direction": 0.50, "w_drawdown": 0.00},
+    # Current research objective, kept as the reference profile.
+    "C": {"w_rmse": 0.40, "w_mae": 0.00, "w_direction": 0.40, "w_drawdown": 0.20},
+}
 
 
 def combined_fitness(
     y_true           : np.ndarray,
     y_pred           : np.ndarray,
     w_rmse           : float = W_RMSE,
+    w_mae            : float = W_MAE,
     w_direction      : float = W_DIRECTION,
     w_drawdown       : float = W_DRAWDOWN,
     verbose          : bool  = False,
     return_components: bool  = False,
 ):
-    assert abs(w_rmse + w_direction + w_drawdown - 1.0) < 1e-6, \
+    assert abs(w_rmse + w_mae + w_direction + w_drawdown - 1.0) < 1e-6, \
         "Tổng trọng số phải = 1.0"
 
     rmse_score = compute_rmse_score(y_true, y_pred)
+    mae_score  = compute_mae_score(y_true, y_pred)
     da_score   = compute_directional_accuracy(y_true, y_pred)
     dd_score   = compute_drawdown_score(y_true, y_pred)
 
-    fitness = w_rmse * rmse_score + w_direction * da_score + w_drawdown * dd_score
+    fitness = (
+        w_rmse * rmse_score
+        + w_mae * mae_score
+        + w_direction * da_score
+        + w_drawdown * dd_score
+    )
 
     if verbose:
         rmse_val = np.sqrt(mean_squared_error(y_true.flatten(), y_pred.flatten()))
+        mae_val = mean_absolute_error(y_true.flatten(), y_pred.flatten())
         print(f"  RMSE          : {rmse_val:.6f}  → score = {rmse_score:.4f}  (×{w_rmse})")
+        print(f"  MAE           : {mae_val:.6f}  → score = {mae_score:.4f}  (×{w_mae})")
         print(f"  Directional   : {da_score*100:.1f}%         → score = {da_score:.4f}  (×{w_direction})")
         print(f"  Drawdown      : {(1-dd_score)*100:.1f}% dd   → score = {dd_score:.4f}  (×{w_drawdown})")
         print("  ─────────────────────────────────────────")
         print(f"  Fitness Total : {fitness:.6f}")
 
     if return_components:
-        return fitness, {"rmse_score": rmse_score, "da_score": da_score, "dd_score": dd_score}
+        return fitness, {"rmse_score": rmse_score, "mae_score": mae_score, "da_score": da_score, "dd_score": dd_score}
     return fitness
 
 
@@ -147,6 +172,7 @@ def evaluate_fitness(
     X_train, y_train,
     X_val,   y_val,
     w_rmse           : float = W_RMSE,
+    w_mae            : float = W_MAE,
     w_direction      : float = W_DIRECTION,
     w_drawdown       : float = W_DRAWDOWN,
     verbose          : bool  = False,
@@ -186,6 +212,7 @@ def evaluate_fitness(
         y_true           = y_val_np,
         y_pred           = val_preds,
         w_rmse           = w_rmse,
+        w_mae            = w_mae,
         w_direction      = w_direction,
         w_drawdown       = w_drawdown,
         verbose          = verbose,
