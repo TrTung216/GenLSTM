@@ -2,26 +2,20 @@ import os
 import time
 import logging
 from logging.handlers import RotatingFileHandler
-import traceback
-
 from flask import Flask, render_template, request, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from cachetools import TTLCache
 import threading
 
-import yfinance as yf
 import torch
-import torch.nn as nn
-import joblib
 import numpy as np
 import pandas as pd
-import json
 
-from src.data_prep import FEATURE_COLS, add_technical_indicators, compute_cmf
+from src.data_prep import FEATURE_COLS
+from src.inference import DEVICE, build_features_raw, load_system, predict_with_uncertainty
 
 app = Flask(__name__)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # =========================================================================
 # ⚙️ CẤU HÌNH LOGGING SẢN XUẤT (ROTATING LOGS)
@@ -90,134 +84,9 @@ PREDICT_LIMITS = ["10 per minute", "100 per day"]
 
 
 # ==========================================
-# 1. ĐỊNH NGHĨA CẤU TRÚC AI
+# AI INFERENCE SYSTEM
 # ==========================================
-class CNN_LSTM(nn.Module):
-    def __init__(self, input_size, hidden_layer_size=50, dropout_rate=0.2, cnn_filters=16, num_layers=1):
-        super().__init__()
-        self.conv1d = nn.Conv1d(in_channels=input_size, out_channels=cnn_filters, kernel_size=3, padding=1)
-        self.relu = nn.ReLU()
-        self.lstm = nn.LSTM(
-            cnn_filters,
-            hidden_layer_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout_rate if num_layers > 1 else 0
-        )
-        self.attention = nn.Linear(hidden_layer_size, 1)
-        self.dropout = nn.Dropout(dropout_rate)
-        self.linear = nn.Linear(hidden_layer_size, 1)
-
-    def forward(self, input_seq):
-        x = input_seq.permute(0, 2, 1)
-        x = self.relu(self.conv1d(x))
-        x = x.permute(0, 2, 1)
-        lstm_out, _ = self.lstm(x)
-        attn_weights = torch.softmax(self.attention(lstm_out), dim=1)
-        context_vector = torch.sum(attn_weights * lstm_out, dim=1)
-        return self.linear(self.dropout(context_vector))
-
-
-# ==========================================
-# 2. HÀM LOAD HỆ THỐNG
-# ==========================================
-def load_system():
-    try:
-        logger.info("Đang khởi tạo cấu trúc hệ thống và nạp trọng số mô hình...")
-        with open('./src/model_config.json', 'r') as f:
-            config = json.load(f)
-
-        net = CNN_LSTM(
-            input_size=config['input_size'],
-            hidden_layer_size=config['hidden_layer_size'],
-            dropout_rate=config['dropout_rate'],
-            cnn_filters=config['cnn_filters'],
-            num_layers=config['num_layers']
-        )
-        net.load_state_dict(torch.load('./src/best_model.pth', map_location=device, weights_only=True))
-        net.to(device)
-        
-        logger.info(f"✅ Khởi động thành công! Thiết bị: {device.type.upper()} | Window Size: {config['window_size']}")
-        return net, joblib.load('./src/scaler_x.pkl'), joblib.load('./src/scaler_y.pkl'), config['window_size']
-
-    except Exception as e:
-        logger.error(f"❌ Lỗi nghiêm trọng khi khởi động hệ thống: {str(e)}", exc_info=True)
-        return None, None, None, 16
-
-
 model, scaler_x, scaler_y, WINDOW_SIZE = load_system()
-
-
-# ==========================================
-# 3. MC DROPOUT — HÀM DỰ BÁO CÓ KHOẢNG TIN CẬY
-# ==========================================
-def predict_with_uncertainty(input_tensor, n_samples: int = 100, confidence: float = 0.90):
-    model.train()  # Bật train mode để giữ dropout hoạt động lúc inference
-
-    raw_preds = []
-    with torch.no_grad():
-        for _ in range(n_samples):
-            pred_scaled = model(input_tensor).cpu().numpy()
-            pred_return = float(scaler_y.inverse_transform(pred_scaled)[0][0])
-            raw_preds.append(pred_return)
-
-    model.eval()  # Trả về chế độ eval tiêu chuẩn
-
-    preds = np.array(raw_preds)
-    alpha = (1 - confidence) / 2
-
-    return {
-        "mean_return"  : float(np.mean(preds)),
-        "std_return"   : float(np.std(preds)),
-        "lower_return" : float(np.percentile(preds, alpha * 100)),
-        "upper_return" : float(np.percentile(preds, (1 - alpha) * 100)),
-        "n_samples"    : n_samples,
-        "confidence"   : confidence,
-        "all_samples"  : preds.tolist()
-    }
-
-
-# ==========================================
-# 4. TIỀN XỬ LÝ DỮ LIỆU
-# ==========================================
-def build_features_raw(ticker: str):
-    """Tải dữ liệu và tạo feature inference đồng nhất với pipeline training."""
-    stock = yf.download(ticker, period="130d", progress=False)
-    if stock.empty:
-        return None, None
-
-    if isinstance(stock.columns, pd.MultiIndex):
-        stock.columns = stock.columns.get_level_values(0)
-
-    # Đồng nhất với prepare_data_from_df(): log Volume trước khi tạo feature.
-    stock['Volume'] = np.log1p(stock['Volume'])
-    stock = add_technical_indicators(stock)
-
-    try:
-        macro_data = yf.download(['^VIX', '^TNX'], period="130d", progress=False)
-        if isinstance(macro_data.columns, pd.MultiIndex):
-            macro_data.columns = [f"{col[0]}_{col[1]}" for col in macro_data.columns]
-
-        stock['VIX'] = macro_data.get('Close_^VIX')
-        stock['TNX'] = macro_data.get('Close_^TNX')
-    except Exception as e:
-        logger.warning(
-            f"Không tải được dữ liệu vĩ mô thời gian thực, đang dùng fallback. Chi tiết: {e}"
-        )
-        stock['VIX'] = 20.0
-        stock['TNX'] = 4.0
-
-    # Đồng nhất với training: CMF proxy thay vì hardcode Sentiment_Score = 0.0.
-    stock['Sentiment_Score'] = compute_cmf(stock, period=20)
-
-    # Chỉ fill dữ liệu macro; indicator/CMF phải giữ đúng warm-up giống training.
-    stock[['VIX', 'TNX']] = stock[['VIX', 'TNX']].ffill().bfill()
-    stock.dropna(subset=FEATURE_COLS, inplace=True)
-
-    if stock.empty:
-        return None, None
-
-    return stock, float(stock['Close'].iloc[-1])
 
 
 # ==========================================
@@ -297,10 +166,16 @@ def predict():
 
         # --- Chuẩn bị tensor ---
         scaled   = scaler_x.transform(recent_data[FEATURE_COLS].values)
-        tensor_x = torch.tensor(scaled, dtype=torch.float32).unsqueeze(0).to(device)
+        tensor_x = torch.tensor(scaled, dtype=torch.float32).unsqueeze(0).to(DEVICE)
 
         # --- MC Dropout inference ---
-        mc = predict_with_uncertainty(tensor_x, n_samples=n_samples, confidence=confidence)
+        mc = predict_with_uncertainty(
+            model,
+            scaler_y,
+            tensor_x,
+            n_samples=n_samples,
+            confidence=confidence,
+        )
 
         # --- Chuyển % thay đổi → giá USD ---
         predicted_price = round(last_close * (1 + mc["mean_return"]),  2)
