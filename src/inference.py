@@ -16,10 +16,10 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def load_system(
-    config_path="./src/model_config.json",
-    model_path="./src/best_model.pth",
-    scaler_x_path="./src/scaler_x.pkl",
-    scaler_y_path="./src/scaler_y.pkl",
+    config_path="./artifacts/model_config.json",
+    model_path="./artifacts/best_model.pth",
+    scaler_x_path="./artifacts/scaler_x.pkl",
+    scaler_y_path="./artifacts/scaler_y.pkl",
 ):
     """Load trained model, scalers and window size for inference."""
     try:
