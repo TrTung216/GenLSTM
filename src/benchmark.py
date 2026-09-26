@@ -13,22 +13,21 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import yfinance as yf
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from torch.utils.data import DataLoader, TensorDataset
 
 from src.baselines import CNNLSTMModel, LSTMModel
-from src.data_prep import fetch_macro_data, prepare_data_from_df
+from src.data_prep import fetch_macro_data, prepare_train_validation_test
 from src.fitness_function import compute_directional_accuracy
 from src.model import CNN_LSTM
+from src.training import train_with_early_stopping
 
 
-SEED = 42
+SEEDS = (42, 123, 2026, 7, 99)
 TICKER = "AAPL"
 START_DATE = "2015-01-01"
-EPOCHS = 120
+MAX_EPOCHS = 120
+PATIENCE = 15
 
 BASELINE_CONFIG = {
     "hidden_layer_size": 64,
@@ -43,7 +42,7 @@ BASELINE_CONFIG = {
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def set_seed(seed=SEED):
+def set_seed(seed=SEEDS[0]):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -72,38 +71,6 @@ def load_raw_data():
     return df
 
 
-def train_model(model, X_train, y_train, learning_rate, batch_size):
-    model = model.to(DEVICE)
-    loss_fn = nn.HuberLoss(delta=1.0)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    dataset = TensorDataset(
-        torch.tensor(X_train, dtype=torch.float32),
-        torch.tensor(y_train, dtype=torch.float32).view(-1, 1),
-    )
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-
-    for epoch in range(EPOCHS):
-        model.train()
-        total_loss = 0.0
-
-        for seq, labels in loader:
-            seq = seq.to(DEVICE)
-            labels = labels.to(DEVICE)
-
-            optimizer.zero_grad()
-            loss = loss_fn(model(seq), labels)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-
-        if (epoch + 1) % 20 == 0:
-            avg_loss = total_loss / max(len(loader), 1)
-            print(f"  epoch {epoch + 1:3d}/{EPOCHS} | loss={avg_loss:.6f}")
-
-    return model
-
-
 def evaluate_model(model, X_test, y_test, scaler_y):
     model.eval()
     X_test_t = torch.tensor(X_test, dtype=torch.float32).to(DEVICE)
@@ -126,34 +93,33 @@ def evaluate_model(model, X_test, y_test, scaler_y):
 
 
 def prepare_dataset(df_raw, window_size):
-    X_train, y_train, X_test, y_test, scaler_y = prepare_data_from_df(
+    data = prepare_train_validation_test(
         df_raw,
         window_size=window_size,
         save_scalers=False,
     )
+    X_train, y_train, X_val, y_val, X_test, y_test, _, scaler_y = data
     if X_train is None:
         raise RuntimeError("Dataset is too short after preprocessing.")
-    return X_train, y_train, X_test, y_test, scaler_y
+    return X_train, y_train, X_val, y_val, X_test, y_test, scaler_y
 
 
-def run_one(name, model_factory, df_raw, config, optimized=False):
+def run_one(name, model_factory, df_raw, config, seed, optimized=False):
     print(f"\n{'=' * 68}\n{name}\n{'=' * 68}")
-    set_seed()
+    set_seed(seed)
 
-    X_train, y_train, X_test, y_test, scaler_y = prepare_dataset(
+    X_train, y_train, X_val, y_val, X_test, y_test, scaler_y = prepare_dataset(
         df_raw,
         config["window_size"],
     )
 
     model = model_factory(X_train.shape[2], config)
-    model = train_model(
-        model,
-        X_train,
-        y_train,
-        learning_rate=config["learning_rate"],
-        batch_size=config["batch_size"],
+    training = train_with_early_stopping(
+        model, X_train, y_train, X_val, y_val,
+        config["learning_rate"], config["batch_size"], DEVICE,
+        max_epochs=MAX_EPOCHS, patience=PATIENCE,
     )
-    metrics = evaluate_model(model, X_test, y_test, scaler_y)
+    metrics = evaluate_model(training.model, X_test, y_test, scaler_y)
 
     return {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -161,8 +127,10 @@ def run_one(name, model_factory, df_raw, config, optimized=False):
         "model": name,
         **metrics,
         "optimized_by_ga_woa": optimized,
-        "epochs": EPOCHS,
-        "seed": SEED,
+        "max_epochs": MAX_EPOCHS,
+        "epochs_ran": training.epochs_ran,
+        "best_epoch": training.best_epoch,
+        "seed": seed,
         "hidden_layer_size": config["hidden_layer_size"],
         "dropout_rate": config["dropout_rate"],
         "cnn_filters": config.get("cnn_filters", ""),
@@ -174,13 +142,13 @@ def run_one(name, model_factory, df_raw, config, optimized=False):
 
 
 def main():
-    set_seed()
+    set_seed(SEEDS[0])
     df_raw = load_raw_data()
 
     rows = []
 
-    rows.append(
-        run_one(
+    model_specs = [
+        (
             "LSTM",
             lambda input_size, c: LSTMModel(
                 input_size=input_size,
@@ -188,13 +156,10 @@ def main():
                 dropout_rate=c["dropout_rate"],
                 num_layers=c["num_layers"],
             ),
-            df_raw,
             BASELINE_CONFIG.copy(),
-        )
-    )
-
-    rows.append(
-        run_one(
+            False,
+        ),
+        (
             "CNN-LSTM",
             lambda input_size, c: CNNLSTMModel(
                 input_size=input_size,
@@ -203,13 +168,10 @@ def main():
                 cnn_filters=c["cnn_filters"],
                 num_layers=c["num_layers"],
             ),
-            df_raw,
             BASELINE_CONFIG.copy(),
-        )
-    )
-
-    rows.append(
-        run_one(
+            False,
+        ),
+        (
             "CNN-LSTM-Attention",
             lambda input_size, c: CNN_LSTM(
                 input_size=input_size,
@@ -218,10 +180,10 @@ def main():
                 cnn_filters=c["cnn_filters"],
                 num_layers=c["num_layers"],
             ),
-            df_raw,
             BASELINE_CONFIG.copy(),
-        )
-    )
+            False,
+        ),
+    ]
 
     with open("artifacts/model_config.json", "r", encoding="utf-8") as f:
         ga_config_raw = json.load(f)
@@ -244,8 +206,8 @@ def main():
         ),
     }
 
-    rows.append(
-        run_one(
+    model_specs.append(
+        (
             "GA-WOA CNN-LSTM-Attention",
             lambda input_size, c: CNN_LSTM(
                 input_size=input_size,
@@ -254,16 +216,26 @@ def main():
                 cnn_filters=c["cnn_filters"],
                 num_layers=c["num_layers"],
             ),
-            df_raw,
             ga_config,
-            optimized=True,
+            True,
         )
     )
+
+    for seed in SEEDS:
+        for name, factory, config, optimized in model_specs:
+            rows.append(run_one(name, factory, df_raw, config, seed, optimized))
 
     results = pd.DataFrame(rows)
     os.makedirs("experiments", exist_ok=True)
     output_path = "experiments/benchmark_results.csv"
     results.to_csv(output_path, index=False)
+
+    metrics = ["rmse_return", "mae_return", "directional_accuracy"]
+    summary = results.groupby("model", sort=False)[metrics].agg(["mean", "std"])
+    summary.columns = [f"{metric}_{stat}" for metric, stat in summary.columns]
+    summary = summary.reset_index()
+    summary.to_csv("experiments/benchmark_summary.csv", index=False)
+    _plot_metric_comparisons(summary)
 
     print("\nBenchmark complete")
     print(results[[
@@ -273,6 +245,27 @@ def main():
         "directional_accuracy",
     ]].to_string(index=False))
     print(f"\nSaved: {output_path}")
+
+
+def _plot_metric_comparisons(summary):
+    import matplotlib.pyplot as plt
+
+    os.makedirs("experiments/plots", exist_ok=True)
+    for metric, filename, label in (
+        ("rmse_return", "model_rmse_comparison.png", "RMSE"),
+        ("mae_return", "model_mae_comparison.png", "MAE"),
+        ("directional_accuracy", "model_directional_accuracy.png", "Directional accuracy"),
+    ):
+        figure, axis = plt.subplots(figsize=(10, 5))
+        axis.bar(
+            summary["model"], summary[f"{metric}_mean"],
+            yerr=summary[f"{metric}_std"], capsize=4,
+        )
+        axis.set_ylabel(f"{label} (mean ± std)")
+        axis.tick_params(axis="x", rotation=20)
+        figure.tight_layout()
+        figure.savefig(os.path.join("experiments/plots", filename), dpi=150)
+        plt.close(figure)
 
 
 if __name__ == "__main__":

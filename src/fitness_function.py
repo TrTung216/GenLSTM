@@ -12,6 +12,13 @@ except ModuleNotFoundError:
     # Hỗ trợ chạy trực tiếp: python src/ga_lstm.py
     from model import CNN_LSTM
 
+try:
+    from src.training import train_with_early_stopping
+    from src.validation import walk_forward_splits
+except ModuleNotFoundError:
+    from training import train_with_early_stopping
+    from validation import walk_forward_splits
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -123,7 +130,7 @@ def combined_fitness(
         print(f"  RMSE          : {rmse_val:.6f}  → score = {rmse_score:.4f}  (×{w_rmse})")
         print(f"  Directional   : {da_score*100:.1f}%         → score = {da_score:.4f}  (×{w_direction})")
         print(f"  Drawdown      : {(1-dd_score)*100:.1f}% dd   → score = {dd_score:.4f}  (×{w_drawdown})")
-        print(f"  ─────────────────────────────────────────")
+        print("  ─────────────────────────────────────────")
         print(f"  Fitness Total : {fitness:.6f}")
 
     if return_components:
@@ -152,17 +159,6 @@ def evaluate_fitness(
     cnn_filters = int(cnn_filters)
     num_layers  = int(num_layers)
 
-    # ── DataLoader ───────────────────────────────────────────
-    X_train_t = torch.tensor(X_train, dtype=torch.float32)
-    y_train_t = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
-
-    train_loader = DataLoader(
-        TensorDataset(X_train_t, y_train_t),
-        batch_size=batch_size,
-        shuffle=False,
-        pin_memory=(torch.cuda.is_available()),
-    )
-
     # ── Khởi tạo model ───────────────────────────────────────
     model = CNN_LSTM(
         input_size        = X_train.shape[2],
@@ -172,45 +168,16 @@ def evaluate_fitness(
         num_layers        = num_layers,
     ).to(device)
 
-    loss_fn   = nn.HuberLoss(delta=1.0)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-
-    # ── Huấn luyện ngắn với Early Stopping ───────────────────
-    best_val_loss    = float("inf")
-    patience_counter = 0
-    PATIENCE         = 5
-    MAX_EPOCHS       = 25
-
-    X_val_t = torch.tensor(X_val, dtype=torch.float32).to(device)
-    y_val_t = torch.tensor(y_val, dtype=torch.float32).view(-1, 1).to(device)
-
-    for epoch in range(MAX_EPOCHS):
-        model.train()
-        for seq, labels in train_loader:
-            seq, labels = seq.to(device), labels.to(device)
-            optimizer.zero_grad()
-            loss = loss_fn(model(seq), labels)
-            loss.backward()
-            optimizer.step()
-
-        model.eval()
-        with torch.no_grad():
-            val_loss = loss_fn(model(X_val_t), y_val_t).item()
-
-        if val_loss < best_val_loss:
-            best_val_loss    = val_loss
-            patience_counter = 0
-        else:
-            patience_counter += 1
-        if patience_counter >= PATIENCE:
-            if verbose:
-                print(f"  Early stop tại epoch {epoch+1}")
-            break
+    result = train_with_early_stopping(
+        model, X_train, y_train, X_val, y_val, lr, batch_size, device,
+        max_epochs=25, patience=5,
+    )
+    model = result.model
 
     # ── Lấy dự báo trên validation ───────────────────────────
     model.eval()
     with torch.no_grad():
-        val_preds = model(X_val_t).cpu().numpy()
+        val_preds = model(torch.as_tensor(X_val, dtype=torch.float32, device=device)).cpu().numpy()
 
     y_val_np = y_val.flatten() if hasattr(y_val, 'flatten') else np.array(y_val).flatten()
 
@@ -224,6 +191,36 @@ def evaluate_fitness(
         verbose          = verbose,
         return_components= return_components,
     )
+
+
+def evaluate_walk_forward_fitness(
+    chromosome,
+    X_development,
+    y_development,
+    n_splits=3,
+    **fitness_kwargs,
+):
+    """Average chromosome fitness over expanding validation folds.
+
+    ``X_development`` must exclude the final test partition.  A new model is
+    trained for every fold, preventing weights from leaking across folds.
+    """
+    fold_results = []
+    for train_idx, validation_idx in walk_forward_splits(len(X_development), n_splits):
+        score, components = evaluate_fitness(
+            chromosome,
+            X_development[train_idx], y_development[train_idx],
+            X_development[validation_idx], y_development[validation_idx],
+            return_components=True,
+            **fitness_kwargs,
+        )
+        fold_results.append((score, components))
+    mean_components = {
+        key: float(np.mean([components[key] for _, components in fold_results]))
+        for key in fold_results[0][1]
+    }
+    mean_components["fold_fitness_std"] = float(np.std([score for score, _ in fold_results]))
+    return float(np.mean([score for score, _ in fold_results])), mean_components
 
 
 # ==========================================
@@ -256,7 +253,8 @@ def evaluate_fitness_legacy(chromosome, X_train, y_train, X_val, y_val):
     X_val_t = torch.tensor(X_val, dtype=torch.float32).to(device)
     y_val_t = torch.tensor(y_val, dtype=torch.float32).view(-1, 1).to(device)
 
-    best_val = float("inf"); p = 0
+    best_val = float("inf")
+    p = 0
     for _ in range(25):
         model.train()
         for seq, labels in train_loader:
@@ -267,9 +265,13 @@ def evaluate_fitness_legacy(chromosome, X_train, y_train, X_val, y_val):
         model.eval()
         with torch.no_grad():
             v = loss_fn(model(X_val_t), y_val_t).item()
-        if v < best_val: best_val = v; p = 0
-        else: p += 1
-        if p >= 5: break
+        if v < best_val:
+            best_val = v
+            p = 0
+        else:
+            p += 1
+        if p >= 5:
+            break
 
     model.eval()
     with torch.no_grad():
