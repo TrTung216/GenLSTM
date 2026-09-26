@@ -232,10 +232,16 @@ def main():
         "cnn_filters": ga_config_raw["cnn_filters"],
         "num_layers": ga_config_raw["num_layers"],
         "window_size": ga_config_raw["window_size"],
-        # Current artifact does not persist optimizer LR/batch, so use the
-        # shared training defaults here and report them explicitly.
-        "learning_rate": BASELINE_CONFIG["learning_rate"],
-        "batch_size": BASELINE_CONFIG["batch_size"],
+        # New training runs persist these values. Older artifacts fall back
+        # to shared defaults so the benchmark remains runnable.
+        "learning_rate": ga_config_raw.get(
+            "learning_rate",
+            BASELINE_CONFIG["learning_rate"],
+        ),
+        "batch_size": ga_config_raw.get(
+            "batch_size",
+            BASELINE_CONFIG["batch_size"],
+        ),
     }
 
     rows.append(
