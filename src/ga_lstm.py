@@ -14,6 +14,7 @@ import copy
 import math
 import matplotlib.pyplot as plt
 import json
+import os
 import joblib
 import pandas as pd
 from sklearn.metrics import mean_squared_error
@@ -322,9 +323,10 @@ def plot_convergence(history_best_fitness, history_components):
         axes[1].set_ylim(0, 1)
 
     plt.tight_layout()
-    plt.savefig("ga_convergence.png", dpi=150)
+    os.makedirs("experiments/plots", exist_ok=True)
+    plt.savefig("experiments/plots/ga_convergence.png", dpi=150)
     plt.show()
-    print("Đã lưu ga_convergence.png")
+    print("Đã lưu experiments/plots/ga_convergence.png")
 
 
 # ==========================================
@@ -428,8 +430,9 @@ if __name__ == "__main__":
             # [MỚI] Lưu lại fitness weights đã dùng để reproduce
             "fitness_weights"  : FITNESS_WEIGHTS,
         }
-        with open('model_config.json', 'w') as f:
+        os.makedirs("artifacts", exist_ok=True)
+        with open("artifacts/model_config.json", "w") as f:
             json.dump(model_config, f, indent=2)
 
-        torch.save(final_model.state_dict(), 'best_model.pth')
-        print("\nĐã lưu model_config.json và best_model.pth. Web App sẵn sàng!")
+        torch.save(final_model.state_dict(), "artifacts/best_model.pth")
+        print("\nĐã lưu artifacts/model_config.json và artifacts/best_model.pth. Web App sẵn sàng!")
