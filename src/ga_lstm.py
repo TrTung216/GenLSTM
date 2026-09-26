@@ -463,6 +463,8 @@ if __name__ == "__main__":
             "cnn_filters"      : int(f_filters),
             "num_layers"       : int(f_layers),
             "window_size"      : int(f_window),
+            "learning_rate"    : float(f_lr),
+            "batch_size"       : int(f_batch),
             # [MỚI] Lưu lại fitness weights đã dùng để reproduce
             "fitness_weights"  : FITNESS_WEIGHTS,
         }
