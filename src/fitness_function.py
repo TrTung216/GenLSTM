@@ -25,32 +25,27 @@ def compute_rmse_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def compute_directional_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Return the fraction of correctly predicted return directions.
+
+    The model target is daily return (Close.pct_change()), therefore direction
+    is the sign of each return itself:
+      positive return -> price up
+      negative return -> price down
+
+    Comparing np.diff(y_true) and np.diff(y_pred) would instead measure whether
+    the return increased/decreased relative to the previous return, which is a
+    different quantity.
     """
-    Thành phần 2: Directional Accuracy — % dự đoán đúng chiều tăng/giảm.
+    y_true = np.asarray(y_true).flatten()
+    y_pred = np.asarray(y_pred).flatten()
 
-    Cơ chế:
-      - Tính diff của y_true và y_pred (so ngày liền kề)
-      - Nếu sign(diff_true) == sign(diff_pred) → dự đoán đúng chiều
-      - DA = số lần đúng / tổng số lần
+    if len(y_true) == 0 or len(y_true) != len(y_pred):
+        return 0.0
 
-    Khoảng giá trị: [0, 1] — random guess ≈ 0.5, tốt > 0.6
+    true_direction = np.sign(y_true)
+    pred_direction = np.sign(y_pred)
 
-    Tại sao quan trọng?
-      Một mô hình có RMSE thấp nhưng DA thấp vẫn vô dụng với trader:
-      dự báo giá $150.1 khi thực tế $150.3 (sai $0.2) nhưng chiều đúng → có lãi.
-      Dự báo $149.9 (sai $0.4) chiều ngược → thua lỗ.
-    """
-    if len(y_true) < 2:
-        return 0.5  # không đủ dữ liệu, trả về random baseline
-
-    # Flatten về 1D nếu cần
-    y_true = y_true.flatten()
-    y_pred = y_pred.flatten()
-
-    true_direction = np.sign(np.diff(y_true))
-    pred_direction = np.sign(np.diff(y_pred))
-
-    # Loại bỏ các điểm không thay đổi (diff = 0) để tránh nhiễu
+    # Ignore exactly-flat true returns because they have no up/down direction.
     mask = true_direction != 0
     if mask.sum() == 0:
         return 0.5
