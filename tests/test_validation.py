@@ -30,3 +30,79 @@ def test_walk_forward_expands_without_future_leakage():
 def test_temporal_split_rejects_invalid_fractions(fractions):
     with pytest.raises(ValueError):
         temporal_split_indices(100, fractions[0], fractions[1])
+
+
+def _synthetic_market_frame(n=180):
+    import pandas as pd
+
+    idx = pd.date_range("2020-01-01", periods=n, freq="B")
+    base = np.linspace(100.0, 160.0, n)
+    return pd.DataFrame({
+        "Open": base,
+        "High": base + 1.0,
+        "Low": base - 1.0,
+        "Close": base + np.sin(np.arange(n) / 5.0),
+        "Volume": np.linspace(1_000_000, 2_000_000, n),
+        "VIX": np.linspace(12.0, 25.0, n),
+        "TNX": np.linspace(1.0, 4.0, n),
+    }, index=idx)
+
+
+def test_walk_forward_preprocessing_refits_scalers_per_fold(monkeypatch):
+    """Every fold must fit fresh scalers using training rows only."""
+    import src.data_prep as data_prep
+
+    x_fit_lengths = []
+    y_fit_lengths = []
+
+    original_x_fit = data_prep.RobustScaler.fit
+    original_y_fit = data_prep.StandardScaler.fit
+
+    def record_x_fit(self, values, *args, **kwargs):
+        x_fit_lengths.append(len(values))
+        return original_x_fit(self, values, *args, **kwargs)
+
+    def record_y_fit(self, values, *args, **kwargs):
+        y_fit_lengths.append(len(values))
+        return original_y_fit(self, values, *args, **kwargs)
+
+    monkeypatch.setattr(data_prep.RobustScaler, "fit", record_x_fit)
+    monkeypatch.setattr(data_prep.StandardScaler, "fit", record_y_fit)
+
+    folds = data_prep.prepare_walk_forward_folds(
+        _synthetic_market_frame(), window_size=20, n_splits=3,
+    )
+
+    assert len(folds) == 3
+    assert len(x_fit_lengths) == len(y_fit_lengths) == 3
+    assert x_fit_lengths == y_fit_lengths
+    assert x_fit_lengths[0] < x_fit_lengths[1] < x_fit_lengths[2]
+
+    for X_train, y_train, X_val, y_val in folds:
+        assert len(X_train) == len(y_train)
+        assert len(X_val) == len(y_val)
+        assert len(X_train) > 0
+        assert len(X_val) > 0
+
+
+def test_walk_forward_scaler_never_sees_validation_outlier(monkeypatch):
+    """A future validation outlier must not be present in scaler.fit input."""
+    import src.data_prep as data_prep
+
+    frame = _synthetic_market_frame()
+    seen_maxima = []
+    original_fit = data_prep.RobustScaler.fit
+
+    def record_fit(self, values, *args, **kwargs):
+        seen_maxima.append(float(np.max(values[:, 3])))
+        return original_fit(self, values, *args, **kwargs)
+
+    monkeypatch.setattr(data_prep.RobustScaler, "fit", record_fit)
+
+    # Put an extreme Close value at the end. It belongs to future development
+    # validation/test chronology and must not contaminate earlier scaler fits.
+    frame.iloc[-1, frame.columns.get_loc("Close")] = 1_000_000.0
+    data_prep.prepare_walk_forward_folds(frame, window_size=20, n_splits=3)
+
+    assert len(seen_maxima) == 3
+    assert all(value < 1_000_000.0 for value in seen_maxima)
