@@ -24,7 +24,7 @@ import yfinance as yf
 
 try:
     from src.data_prep import (
-        prepare_train_validation_test,
+        prepare_fixed_boundary_dataset,
         prepare_walk_forward_folds,
         fetch_macro_data,
     )
@@ -35,7 +35,7 @@ try:
     from src.training import train_with_early_stopping
 except ModuleNotFoundError:
     from data_prep import (
-        prepare_train_validation_test,
+        prepare_fixed_boundary_dataset,
         prepare_walk_forward_folds,
         fetch_macro_data,
     )
@@ -414,8 +414,13 @@ if __name__ == "__main__":
         print(f"{'='*55}")
 
         print("\nĐang huấn luyện mô hình cuối cùng...")
-        X_train, y_train, X_val, y_val, X_test, y_test, _, scaler_y = prepare_train_validation_test(
-            df_raw, f_window, save_scalers=True   # lưu scaler_x/y.pkl
+        (
+            X_train, y_train, X_val, y_val, X_test, y_test,
+            _, scaler_y, _, _,
+        ) = prepare_fixed_boundary_dataset(
+            df_raw,
+            f_window,
+            save_scalers=True,
         )
         num_features = X_train.shape[2]   # (n, window, features) → dim 2
 
