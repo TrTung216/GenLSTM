@@ -26,7 +26,7 @@ Repo hiện có hai phần chính:
 GenLSTM/
 ├── app.py
 ├── Dockerfile
-├── model_config.json
+├── artifacts/\n│   ├── best_model.pth\n│   ├── model_config.json\n│   ├── scaler_x.pkl\n│   └── scaler_y.pkl
 ├── requirements.txt
 ├── templates/
 │   └── index.html
@@ -86,7 +86,7 @@ Ghi chú:
 Chạy từ thư mục gốc của repo:
 
 ```bash
-python src/ga_lstm.py
+python -m src.ga_lstm
 ```
 
 Script sẽ:
@@ -167,11 +167,53 @@ Xóa toàn bộ cache dữ liệu đã lưu trong RAM.
   - tối đa `50` ticker
   - TTL `3600` giây
 
-## Kết quả minh họa
+## Kết quả thực nghiệm
 
-Biểu đồ hội tụ dưới đây là một ví dụ từ quá trình tối ưu `GA-WOA` trong repo:
+Benchmark cuối được chạy với 5 random seeds (42, 123, 2026, 7, 99). Để tránh so sánh lệch do các mô hình dùng lookback window khác nhau, tất cả mô hình được đánh giá trên cùng **575 target observations cuối của tập test**. Các scaler chỉ được fit trên dữ liệu huấn luyện và early stopping sử dụng validation set.
 
-![GA-WOA convergence](Figure_1.png)
+| Model | RMSE (mean ± std) ↓ | MAE (mean ± std) ↓ | Directional Accuracy (mean ± std) ↑ |
+| --- | ---: | ---: | ---: |
+| LSTM | 0.018591 ± 0.000402 | 0.012832 ± 0.000520 | 48.71% ± 0.69% |
+| CNN-LSTM | 0.018183 ± 0.000164 | 0.012285 ± 0.000219 | 48.50% ± 1.66% |
+| CNN-LSTM-Attention | 0.018322 ± 0.000120 | 0.012481 ± 0.000160 | 46.66% ± 0.23% |
+| **GA-WOA CNN-LSTM-Attention** | **0.017996 ± 0.000021** | **0.012015 ± 0.000040** | **51.36% ± 2.15%** |
+
+So với CNN-LSTM-Attention chưa tối ưu, cấu hình được GA-WOA lựa chọn giảm khoảng **1.78% RMSE**, **3.74% MAE** và tăng Directional Accuracy khoảng **4.70 điểm phần trăm**. RMSE và MAE của cấu hình GA-WOA có độ lệch chuẩn nhỏ qua 5 seeds, trong khi Directional Accuracy biến động nhiều hơn.
+
+<p align="center">
+  <img src="experiments/plots/model_rmse_comparison.png" width="48%" alt="RMSE comparison">
+  <img src="experiments/plots/model_mae_comparison.png" width="48%" alt="MAE comparison">
+</p>
+
+<p align="center">
+  <img src="experiments/plots/model_directional_accuracy.png" width="58%" alt="Directional accuracy comparison">
+</p>
+
+### Fitness ablation
+
+Ba fitness profile được kiểm tra bằng cùng protocol và seed cho GA-WOA:
+
+| Profile | Objective | RMSE ↓ | MAE ↓ | Directional Accuracy ↑ |
+| --- | --- | ---: | ---: | ---: |
+| A | 0.50 RMSE + 0.50 MAE | 0.018249 | 0.012347 | 48.96% |
+| B | 0.50 RMSE + 0.50 Directional Accuracy | **0.017943** | **0.012007** | 48.88% |
+| C | 0.40 RMSE + 0.40 Directional Accuracy + 0.20 Drawdown | 0.018201 | 0.012374 | 45.09% |
+
+Ablation này là **single-run experiment**, vì vậy được dùng để phân tích hành vi của fitness function chứ chưa được xem là bằng chứng đủ để chọn một objective tốt nhất trên mọi seed. Trong lần chạy này, profile B cho RMSE/MAE thấp nhất, còn việc thêm thành phần drawdown ở profile C không cải thiện kết quả held-out.
+
+### Phân tích
+
+Kết quả cho thấy việc thêm Attention vào CNN-LSTM **không tự động cải thiện** hiệu năng: CNN-LSTM-Attention cố định có kết quả thấp hơn CNN-LSTM ở các metric chính trong benchmark này. Ngược lại, cấu hình CNN-LSTM-Attention được GA-WOA tìm kiếm đạt RMSE/MAE thấp hơn và Directional Accuracy trung bình cao hơn các baseline. Điều này cho thấy kết quả của kiến trúc phụ thuộc đáng kể vào cấu hình siêu tham số, thay vì chỉ phụ thuộc vào việc thêm một attention layer.
+
+Directional Accuracy của GA-WOA có độ biến thiên lớn hơn RMSE/MAE, do đó kết quả hướng giá cần được diễn giải thận trọng. Dự án không sử dụng test set để chọn hyperparameter hoặc early stopping; test set chỉ dành cho đánh giá cuối.
+
+### GA-WOA convergence
+
+<p align="center">
+  <img src="experiments/plots/ga_convergence.png" width="70%" alt="GA-WOA convergence">
+</p>
+
+Các biểu đồ chi tiết về best/mean fitness và population diversity được lưu trong [`experiments/plots/`](experiments/plots/).
 
 ## Hạn chế hiện tại
 
