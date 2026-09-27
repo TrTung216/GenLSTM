@@ -226,6 +226,69 @@ def prepare_train_validation_test(
     )
 
 
+
+def prepare_fixed_boundary_dataset(
+    df_input,
+    window_size=16,
+    validation_fraction=0.15,
+    test_fraction=0.20,
+):
+    """Build sequences after fixing train/validation/test target boundaries.
+
+    Split points are computed on the cleaned raw timeline independently of
+    window_size. Different lookback windows therefore predict exactly the same
+    validation and test target dates. Scalers use training rows only.
+    """
+    from src.validation import temporal_split_indices
+
+    if df_input is None or df_input.empty:
+        return (None,) * 10
+
+    df = df_input.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df['Volume'] = np.log1p(df['Volume'])
+    df = add_technical_indicators(df)
+    df['Sentiment_Score'] = compute_cmf(df, period=20)
+    df['Target_Return'] = df['Close'].pct_change()
+    df.dropna(inplace=True)
+
+    if len(df) <= window_size:
+        return (None,) * 10
+
+    raw_split = temporal_split_indices(
+        len(df), validation_fraction, test_fraction,
+    )
+    train_end = raw_split.train.stop
+    validation_end = raw_split.validation.stop
+    if train_end <= window_size:
+        return (None,) * 10
+
+    features_raw = df[FEATURE_COLS].to_numpy()
+    target_raw = df['Target_Return'].to_numpy().reshape(-1, 1)
+    scaler_x, scaler_y = RobustScaler(), StandardScaler()
+    scaler_x.fit(features_raw[:train_end])
+    scaler_y.fit(target_raw[:train_end])
+    features = scaler_x.transform(features_raw)
+    target = scaler_y.transform(target_raw).flatten()
+
+    def build_for_targets(start, stop):
+        positions = np.arange(start, stop)
+        positions = positions[positions >= window_size]
+        X = np.asarray([features[pos - window_size:pos] for pos in positions])
+        y = target[positions]
+        dates = df.index.to_numpy()[positions]
+        return X, y, dates
+
+    X_train, y_train, train_dates = build_for_targets(window_size, train_end)
+    X_val, y_val, val_dates = build_for_targets(train_end, validation_end)
+    X_test, y_test, test_dates = build_for_targets(validation_end, len(df))
+
+    return (
+        X_train, y_train, X_val, y_val, X_test, y_test,
+        scaler_x, scaler_y, val_dates, test_dates,
+    )
+
 def prepare_walk_forward_folds(
     df_input,
     window_size=16,
