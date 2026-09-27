@@ -18,7 +18,7 @@ from src.inference import DEVICE, build_features_raw, load_system, predict_with_
 app = Flask(__name__)
 
 # =========================================================================
-# ⚙️ CẤU HÌNH LOGGING SẢN XUẤT (ROTATING LOGS)
+# CẤU HÌNH LOGGING SẢN XUẤT (ROTATING LOGS)
 # =========================================================================
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)

@@ -1,10 +1,12 @@
 {
   "input_size": 17,
-  "hidden_layer_size": 128,
+  "hidden_layer_size": 96,
   "dropout_rate": 0.05,
-  "cnn_filters": 64,
+  "cnn_filters": 16,
   "num_layers": 1,
-  "window_size": 60,
+  "window_size": 20,
+  "learning_rate": 0.0001,
+  "batch_size": 16,
   "fitness_weights": {
     "w_rmse": 0.4,
     "w_direction": 0.4,
