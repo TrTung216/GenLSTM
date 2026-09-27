@@ -17,7 +17,7 @@ import yfinance as yf
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 from src.baselines import CNNLSTMModel, LSTMModel
-from src.data_prep import fetch_macro_data, prepare_train_validation_test
+from src.data_prep import fetch_macro_data, prepare_fixed_boundary_dataset
 from src.fitness_function import compute_directional_accuracy
 from src.model import CNN_LSTM
 from src.training import train_with_early_stopping
@@ -104,15 +104,20 @@ def evaluate_model(model, X_test, y_test, scaler_y, keep_last=None):
 
 
 def prepare_dataset(df_raw, window_size):
-    data = prepare_train_validation_test(
+    data = prepare_fixed_boundary_dataset(
         df_raw,
         window_size=window_size,
-        save_scalers=False,
     )
-    X_train, y_train, X_val, y_val, X_test, y_test, _, scaler_y = data
+    (
+        X_train, y_train, X_val, y_val, X_test, y_test,
+        _, scaler_y, val_dates, test_dates,
+    ) = data
     if X_train is None:
         raise RuntimeError("Dataset is too short after preprocessing.")
-    return X_train, y_train, X_val, y_val, X_test, y_test, scaler_y
+    return (
+        X_train, y_train, X_val, y_val, X_test, y_test,
+        scaler_y, val_dates, test_dates,
+    )
 
 
 def run_one(
@@ -122,10 +127,10 @@ def run_one(
     print(f"\n{'=' * 68}\n{name}\n{'=' * 68}")
     set_seed(seed)
 
-    X_train, y_train, X_val, y_val, X_test, y_test, scaler_y = prepare_dataset(
-        df_raw,
-        config["window_size"],
-    )
+    (
+        X_train, y_train, X_val, y_val, X_test, y_test,
+        scaler_y, val_dates, test_dates,
+    ) = prepare_dataset(df_raw, config["window_size"])
 
     model = model_factory(X_train.shape[2], config)
     training = train_with_early_stopping(
@@ -155,6 +160,10 @@ def run_one(
         "learning_rate": config["learning_rate"],
         "batch_size": config["batch_size"],
         "window_size": config["window_size"],
+        "validation_start": str(val_dates[0])[:10],
+        "validation_end": str(val_dates[-1])[:10],
+        "test_start": str(test_dates[0])[:10],
+        "test_end": str(test_dates[-1])[:10],
     }
 
 
@@ -238,16 +247,29 @@ def main():
         )
     )
 
-    # Fair-comparison boundary: each lookback can produce a slightly different
-    # number of sequences.  Align evaluation to the shortest held-out test
-    # suffix so every model is scored on identical final target observations.
+    # Raw target boundaries are fixed before sequence generation, so every
+    # lookback configuration is evaluated on exactly the same dates.
+    target_dates = {}
     test_lengths = {}
     for name, _, config, _ in model_specs:
-        *_, X_test, y_test, _ = prepare_dataset(df_raw, config["window_size"])
-        test_lengths[name] = len(y_test)
-    common_test_samples = min(test_lengths.values())
-    print(f"Common aligned test samples: {common_test_samples}")
-    print(f"Raw test lengths by model: {test_lengths}")
+        *_, test_dates = prepare_dataset(df_raw, config["window_size"])
+        target_dates[name] = test_dates
+        test_lengths[name] = len(test_dates)
+
+    reference_name = model_specs[0][0]
+    reference_dates = target_dates[reference_name]
+    for name, dates in target_dates.items():
+        if not np.array_equal(dates, reference_dates):
+            raise RuntimeError(
+                f"Test target dates are not aligned: {reference_name} vs {name}"
+            )
+    common_test_samples = len(reference_dates)
+    print(f"Fixed-boundary test samples: {common_test_samples}")
+    print(
+        f"Test target range: {str(reference_dates[0])[:10]} "
+        f"-> {str(reference_dates[-1])[:10]}"
+    )
+    print(f"Test lengths by model: {test_lengths}")
 
     for seed in SEEDS:
         for name, factory, config, optimized in model_specs:
@@ -275,7 +297,7 @@ def main():
         "mae_return",
         "directional_accuracy",
     ]].to_string(index=False))
-    print(f"\nAll models evaluated on the same final {common_test_samples} test observations.")
+    print(f"\nAll models evaluated on the same fixed-boundary {common_test_samples} test observations.")
     print(f"Saved: {output_path}")
 
 
