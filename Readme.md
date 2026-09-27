@@ -26,7 +26,11 @@ Repo hiện có hai phần chính:
 GenLSTM/
 ├── app.py
 ├── Dockerfile
-├── artifacts/\n│   ├── best_model.pth\n│   ├── model_config.json\n│   ├── scaler_x.pkl\n│   └── scaler_y.pkl
+├── artifacts/
+│   ├── best_model.pth
+│   ├── model_config.json
+│   ├── scaler_x.pkl
+│   └── scaler_y.pkl
 ├── requirements.txt
 ├── templates/
 │   └── index.html
