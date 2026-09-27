@@ -23,14 +23,14 @@ from datetime import datetime, timedelta
 import yfinance as yf
 
 try:
-    from src.data_prep import prepare_train_validation_test, fetch_macro_data
+    from src.data_prep import (\n        prepare_train_validation_test, prepare_walk_forward_folds, fetch_macro_data,\n    )
     from src.fitness_function import (
         evaluate_walk_forward_fitness, CNN_LSTM, device,
         compute_directional_accuracy,
     )
     from src.training import train_with_early_stopping
 except ModuleNotFoundError:
-    from data_prep import prepare_train_validation_test, fetch_macro_data
+    from data_prep import (\n        prepare_train_validation_test, prepare_walk_forward_folds, fetch_macro_data,\n    )
     from fitness_function import (
         evaluate_walk_forward_fitness, CNN_LSTM, device,
         compute_directional_accuracy,
@@ -201,29 +201,35 @@ def run_ga_lstm(df_raw):
         for i, chromosome in enumerate(population):
             # window_size = gene[4]; truyền ticker để tải VIX/TNX đúng mã
             # [FIX 1] df_raw đã có VIX/TNX từ trước — không cần truyền ticker
-            data_package = prepare_train_validation_test(
-                df_raw, chromosome[4], scaler_fit_fraction=0.5,
+            # Build each expanding fold from raw chronological data and fit
+            # preprocessing scalers on that fold's training portion only.
+            folds = prepare_walk_forward_folds(
+                df_raw, chromosome[4], n_splits=3,
             )
 
-            if data_package[0] is None or len(data_package[0]) == 0:
+            if not folds:
                 fitness = 1e-6
                 gen_components.append(None)
             else:
-                X_train, y_train, X_val, y_val, _, _, _, _ = data_package
-                X_development = np.concatenate((X_train, X_val))
-                y_development = np.concatenate((y_train, y_val))
-
-                if len(X_development) < 6:
-                    fitness = 1e-6
-                    gen_components.append(None)
-                else:
-                    fitness, components = evaluate_walk_forward_fitness(
+                fold_results = []
+                for X_train, y_train, X_val, y_val in folds:
+                    fold_results.append(evaluate_fitness(
                         chromosome,
-                        X_development, y_development,
-                        n_splits=3,
+                        X_train, y_train, X_val, y_val,
+                        return_components=True,
                         **FITNESS_WEIGHTS,
-                    )
-                    gen_components.append(components)
+                    ))
+                fitness = float(np.mean([score for score, _ in fold_results]))
+                components = {
+                    key: float(np.mean([
+                        comp[key] for _, comp in fold_results
+                    ]))
+                    for key in fold_results[0][1]
+                }
+                components["fold_fitness_std"] = float(np.std([
+                    score for score, _ in fold_results
+                ]))
+                gen_components.append(components)
 
             fitness_scores.append(fitness)
             _log_individual(i, chromosome, fitness, gen_components[-1])
