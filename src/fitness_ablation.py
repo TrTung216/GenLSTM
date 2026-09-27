@@ -29,7 +29,7 @@ import yfinance as yf
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 from src import ga_lstm
-from src.data_prep import fetch_macro_data, prepare_train_validation_test
+from src.data_prep import fetch_macro_data, prepare_fixed_boundary_dataset
 from src.fitness_function import (
     FITNESS_PROFILES,
     CNN_LSTM,
@@ -76,12 +76,15 @@ def load_raw_data():
 
 def evaluate_selected_config(df_raw, chromosome):
     units, dropout, lr, batch, window, filters, layers = chromosome
-    package = prepare_train_validation_test(
+    package = prepare_fixed_boundary_dataset(
         df_raw,
         int(window),
         save_scalers=False,
     )
-    X_train, y_train, X_val, y_val, X_test, y_test, _, scaler_y = package
+    (
+        X_train, y_train, X_val, y_val, X_test, y_test,
+        _, scaler_y, _, _,
+    ) = package
 
     model = CNN_LSTM(
         input_size=X_train.shape[2],
