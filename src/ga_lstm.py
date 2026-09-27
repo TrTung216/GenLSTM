@@ -25,7 +25,7 @@ import yfinance as yf
 try:
     from src.data_prep import (\n        prepare_train_validation_test, prepare_walk_forward_folds, fetch_macro_data,\n    )
     from src.fitness_function import (
-        evaluate_walk_forward_fitness, CNN_LSTM, device,
+        evaluate_fitness, CNN_LSTM, device,
         compute_directional_accuracy,
     )
     from src.training import train_with_early_stopping
