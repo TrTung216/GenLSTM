@@ -106,3 +106,40 @@ def test_walk_forward_scaler_never_sees_validation_outlier(monkeypatch):
 
     assert len(seen_maxima) == 3
     assert all(value < 1_000_000.0 for value in seen_maxima)
+
+
+def test_fixed_boundary_dataset_aligns_target_dates_across_windows():
+    """Different lookbacks must share identical validation/test target dates."""
+    import src.data_prep as data_prep
+
+    frame = _synthetic_market_frame(n=240)
+    datasets = [
+        data_prep.prepare_fixed_boundary_dataset(frame, window_size=window)
+        for window in (20, 30, 45, 60)
+    ]
+
+    reference_val_dates = datasets[0][-2]
+    reference_test_dates = datasets[0][-1]
+    for dataset in datasets[1:]:
+        assert np.array_equal(dataset[-2], reference_val_dates)
+        assert np.array_equal(dataset[-1], reference_test_dates)
+
+
+def test_fixed_boundary_scaler_fit_is_window_independent(monkeypatch):
+    """Scaler training cutoff must be fixed on raw time, not sequence count."""
+    import src.data_prep as data_prep
+
+    frame = _synthetic_market_frame(n=240)
+    fit_lengths = []
+    original_fit = data_prep.RobustScaler.fit
+
+    def record_fit(self, values, *args, **kwargs):
+        fit_lengths.append(len(values))
+        return original_fit(self, values, *args, **kwargs)
+
+    monkeypatch.setattr(data_prep.RobustScaler, "fit", record_fit)
+    for window in (20, 30, 45, 60):
+        data_prep.prepare_fixed_boundary_dataset(frame, window_size=window)
+
+    assert len(fit_lengths) == 4
+    assert len(set(fit_lengths)) == 1
