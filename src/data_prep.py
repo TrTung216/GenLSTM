@@ -232,6 +232,7 @@ def prepare_fixed_boundary_dataset(
     window_size=16,
     validation_fraction=0.15,
     test_fraction=0.20,
+    save_scalers=False,
 ):
     """Build sequences after fixing train/validation/test target boundaries.
 
@@ -269,6 +270,10 @@ def prepare_fixed_boundary_dataset(
     scaler_x, scaler_y = RobustScaler(), StandardScaler()
     scaler_x.fit(features_raw[:train_end])
     scaler_y.fit(target_raw[:train_end])
+    if save_scalers:
+        os.makedirs("artifacts", exist_ok=True)
+        joblib.dump(scaler_x, "artifacts/scaler_x.pkl")
+        joblib.dump(scaler_y, "artifacts/scaler_y.pkl")
     features = scaler_x.transform(features_raw)
     target = scaler_y.transform(target_raw).flatten()
 
