@@ -1,43 +1,47 @@
 # Limitations and Threats to Validity
 
-## Dataset scope
+## Dataset and temporal scope
 
-The current final benchmark is centered on **AAPL**. Performance on one equity does not establish that the same architecture or GA-WOA configuration will generalize to other stocks, sectors, indices, asset classes, or market regimes.
-
-The experiment also covers one historical period. Structural market changes may alter relationships between technical indicators and future returns.
+The final Phase-1 study is centered on **AAPL** and one historical period. Results do not establish generalization to other stocks, sectors, indices, asset classes, or future market regimes.
 
 ## Forecasting horizon
 
-The project predicts the next-step return. Multi-step forecasting introduces additional uncertainty and error accumulation and is not evaluated here.
+The target is the next-session return. Multi-step forecasting, recursive prediction, and longer investment horizons are outside Phase 1.
 
 ## Feature scope
 
-The feature set is primarily OHLCV-derived technical indicators plus VIX, TNX, and a CMF-based sentiment proxy. The current `Sentiment_Score` is not text-derived investor sentiment. Consequently, the experiments do not establish the benefit of news, social-media, or language-model sentiment information.
+The 17-feature input is primarily OHLCV-derived technical information plus VIX, TNX, and a CMF-based proxy stored as `Sentiment_Score`. It is **not text-derived sentiment**. Phase 1 therefore makes no claim about the value of news, social-media, or language-model sentiment.
 
-## Hyperparameter-search uncertainty
+## Optimizer uncertainty
 
-GA-WOA is stochastic. Although final model training is evaluated over five seeds, the fitness-profile ablation currently uses one search run per profile. Repeating the entire optimization process under multiple independent search seeds would be required to quantify optimizer-level uncertainty.
+GA-WOA is stochastic. The final benchmark repeats model training over five seeds, but the complete GA-WOA hyperparameter search itself is not repeated over multiple independent search seeds. Optimizer-level uncertainty is therefore not quantified.
 
-The search is also limited to the predefined hyperparameter ranges. A configuration outside those ranges could perform differently.
+The search is restricted to predefined ranges. Better configurations may exist outside the tested space.
+
+## Directional performance
+
+All final benchmark configurations have mean directional accuracy below 50%. The project therefore does not establish reliable directional prediction. Small changes around zero can also change prediction sign without strongly affecting RMSE or MAE.
 
 ## Statistical inference
 
-The benchmark reports mean and sample standard deviation across five training seeds, but it does not currently include formal paired significance tests or confidence intervals over independent market samples. The five runs share the same historical test observations, so they should not be interpreted as five independent financial datasets.
+The reported mean and sample standard deviation describe five training seeds evaluated on the same 587 historical test targets. They are not five independent market datasets. Phase 1 does not include formal inference over independent assets or market periods.
+
+## Fitness ablation
+
+The objective-profile ablation is single-run and predates the final complete rerun of the corrected Phase-1 protocol. It is retained as exploratory analysis and should not be interpreted as a definitive comparison of fitness functions.
 
 ## Trading interpretation
 
-RMSE, MAE, and directional accuracy are predictive metrics rather than a complete trading evaluation. The project does not currently establish profitability after transaction costs, slippage, bid-ask spread, position sizing, turnover, or risk constraints.
-
-Directional accuracy slightly above 50% should therefore not be interpreted directly as evidence of a profitable trading strategy.
+RMSE, MAE, and directional accuracy are predictive metrics, not evidence of profitability. Transaction costs, slippage, bid-ask spread, turnover, position sizing, portfolio construction, and risk-adjusted returns are not modeled.
 
 ## Data source
 
-The pipeline relies on Yahoo Finance through `yfinance`. Data availability, adjustments, missing observations, or upstream changes may affect reproducibility.
+The pipeline depends on Yahoo Finance through `yfinance`. Upstream corrections, adjustments, missing observations, API changes, or different download dates can affect exact reproducibility.
 
 ## Model comparison scope
 
-The benchmark compares LSTM, CNN-LSTM, CNN-LSTM-Attention, and a GA-WOA-optimized CNN-LSTM-Attention configuration. It is not a comprehensive comparison with all modern time-series forecasting methods. The current study deliberately focuses on isolating the effect of the chosen architecture and optimization procedure rather than maximizing the number of model families.
+Phase 1 compares LSTM-family models and a GA-WOA hyperparameter search. It is not a comprehensive benchmark against Transformer-based forecasting, statistical time-series models, gradient boosting, or other modern methods. Those comparisons are outside the Phase-1 scope.
 
-## Reproducibility considerations
+## Reproducibility boundary
 
-Fixed chronological target boundaries, fold-local preprocessing, walk-forward validation, explicit validation-based early stopping, saved experiment CSVs, and multi-seed final evaluation reduce several threats to validity. They do not remove the broader limitations associated with single-asset historical evaluation and stochastic hyperparameter optimization.
+Fixed raw-timeline target boundaries, fold-local preprocessing, walk-forward validation, validation-only early stopping, saved outputs, and multi-seed evaluation reduce important validity threats. They do not remove the broader limitations associated with single-asset historical evaluation and a single final optimizer search.
