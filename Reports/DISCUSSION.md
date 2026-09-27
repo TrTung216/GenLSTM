@@ -1,39 +1,45 @@
 # Discussion
 
-## Effect of architecture
+## Final Phase-1 finding
 
-The benchmark does not show an automatic benefit from adding the attention layer. CNN-LSTM and CNN-LSTM-Attention have almost identical mean RMSE (0.018136 versus 0.018139) and similar MAE, while the fixed attention model has lower mean directional accuracy (46.76% versus 47.58%).
+The corrected Phase-1 experiment does not support a claim that GA-WOA CNN-LSTM-Attention is uniformly superior to the simpler baselines. After rerunning GA-WOA under fold-local walk-forward preprocessing and evaluating all models on fixed raw-timeline target boundaries, CNN-LSTM and the optimized attention model are very close on error metrics.
 
-This is useful negative evidence: additional architectural complexity alone is not sufficient to improve forecasting quality in this setup. The result also suggests that the contribution observed for the optimized model should not be attributed to attention alone.
+CNN-LSTM obtains the lowest mean RMSE (0.018083), while GA-WOA CNN-LSTM-Attention obtains the lowest mean MAE (0.012220) and the highest mean directional accuracy (47.92%). The differences in RMSE and MAE between those two configurations are small.
 
-## Effect of GA-WOA optimization
+This is a more conservative result than the earlier pre-final-protocol experiment and is the result used for the final Phase-1 interpretation.
 
-The GA-WOA-selected CNN-LSTM-Attention configuration reaches lower mean RMSE and MAE than all three fixed baselines in the five-seed benchmark. It also reaches a higher mean directional accuracy.
+## Architecture contribution
 
-A reasonable interpretation is that architecture and hyperparameters interact strongly. GA-WOA searches parameters including hidden size, dropout, learning rate, batch size, lookback window, CNN filters, and LSTM layers instead of relying on one manually fixed configuration. In these experiments, that search produced a configuration that generalizes better to the held-out AAPL test period than the fixed configurations.
+The controlled architecture ablation is especially informative because all variants use the same final GA-WOA hyperparameters.
 
-This result should not be interpreted as evidence that GA-WOA or CNN-LSTM-Attention is universally superior. The evidence is specific to the current dataset, feature pipeline, search space, validation protocol, and forecasting horizon.
+Moving from LSTM to CNN-LSTM reduces mean RMSE from 0.018143 to 0.017944 and mean MAE from 0.012312 to 0.012084. Adding attention produces RMSE 0.018026 and MAE 0.012144, which does not improve on CNN-LSTM. CNN-LSTM and CNN-LSTM-Attention both obtain mean directional accuracy of approximately 48.09%.
 
-## Stability across seeds
+Therefore, the Phase-1 evidence suggests that the convolutional component is useful under the tested configuration, while attention does not provide a consistent additional benefit. Architectural complexity should not be assumed to improve forecasting performance automatically.
 
-The optimized model has very small variation in RMSE and MAE across five training seeds. This indicates that its prediction-error magnitude is relatively insensitive to the tested initialization randomness.
+## Effect of GA-WOA
 
-Directional accuracy behaves differently. Its mean is 52.56%, but its standard deviation is 2.91 percentage points and individual runs vary substantially more than RMSE or MAE. Therefore, directional performance should be reported using the full mean ± standard deviation rather than selecting the strongest individual seed.
+GA-WOA remains useful as a systematic hyperparameter-search procedure. The final search selected `[32, 0.05, 0.001, 16, 20, 64, 1]` with walk-forward fitness 0.6044.
 
-The difference between error stability and directional variability is plausible because a prediction can remain numerically close to zero while a small change is sufficient to switch its predicted sign.
+However, the held-out benchmark shows that the searched CNN-LSTM-Attention configuration is competitive rather than clearly dominant. This distinction matters: optimization can identify a viable configuration without proving that the optimizer or the optimized architecture is universally better than simpler alternatives.
+
+The final result also illustrates why the held-out test set must remain separate from search. A high validation/search fitness does not guarantee superiority on unseen market observations.
+
+## Directional prediction
+
+Mean directional accuracy is below 50% for every configuration in the final benchmark. The optimized model reaches 47.92% ± 1.22%.
+
+Consequently, Phase 1 should not claim reliable next-session direction classification or trading advantage. RMSE and MAE indicate that predictions can remain numerically close to realized returns even when the sign is incorrect.
 
 ## Fitness-objective observations
 
-The fitness ablation provides preliminary evidence that objective design changes the configuration found by GA-WOA. Profile B produced the lowest RMSE/MAE in its single run, whereas the additional drawdown term in profile C did not translate into stronger held-out metrics.
+The fitness-profile ablation remains exploratory. Profile B produced the lowest RMSE and MAE in its single historical run, while the drawdown component in profile C did not improve held-out metrics.
 
-Raw search-fitness values from different profiles should not be compared directly because the objectives use different component weights and therefore different scales. Stronger conclusions about the fitness objective would require repeated independent GA-WOA searches for each profile.
+Because each profile was searched once and the experiment predates the final full-protocol rerun, it is evidence about objective sensitivity rather than evidence that one objective is generally optimal. Raw fitness values across profiles are also not directly comparable because the component weights differ.
 
 ## Evaluation design
 
-Two evaluation details materially strengthen the final benchmark.
+Phase 1 uses fixed train/validation/test target boundaries on the cleaned raw timeline before lookback generation. This ensures that different lookback windows are evaluated on identical validation and test dates.
 
-First, train, validation, and test target boundaries are fixed on the cleaned raw timeline before lookback sequences are generated. This prevents different window sizes from shifting the observations on which models are evaluated.
+During GA-WOA search, preprocessing is refitted separately inside every expanding walk-forward fold and uses only that fold's training history. The final test period is excluded from hyperparameter selection and early stopping.
 
-Second, GA-WOA walk-forward evaluation refits preprocessing scalers independently within every expanding training fold. Validation observations and the final test period therefore do not contribute statistics to the scaler fitted for a fold.
-
-Together with early stopping on validation data and a held-out final test partition, these choices reduce common forms of temporal leakage and make the comparison more reproducible.
+These choices reduce temporal leakage and make the negative as well as positive findings more credible. They do not eliminate the limitations of a single-asset historical study.
