@@ -224,3 +224,71 @@ def prepare_train_validation_test(
         X[split.test], y[split.test],
         scaler_x, scaler_y,
     )
+
+
+def prepare_walk_forward_folds(
+    df_input,
+    window_size=16,
+    n_splits=3,
+    validation_fraction=0.15,
+    test_fraction=0.20,
+):
+    """Build walk-forward folds with a scaler fitted independently per fold.
+
+    Only the outer development partition (train + validation) is considered.
+    For every expanding fold, RobustScaler/StandardScaler are fitted on raw
+    rows available up to that fold's training boundary, then used to transform
+    that fold's train and validation sequences.  The final test partition is
+    never used during GA-WOA search.
+    """
+    from src.validation import temporal_split_indices, walk_forward_splits
+
+    if df_input is None or df_input.empty:
+        return []
+
+    df = df_input.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df['Volume'] = np.log1p(df['Volume'])
+    df = add_technical_indicators(df)
+    df['Sentiment_Score'] = compute_cmf(df, period=20)
+    df['Target_Return'] = df['Close'].pct_change()
+    df.dropna(inplace=True)
+
+    n_sequences = len(df) - window_size
+    if n_sequences < 3:
+        return []
+
+    outer = temporal_split_indices(
+        n_sequences, validation_fraction, test_fraction,
+    )
+    development_end = outer.validation.stop
+    features_raw = df[FEATURE_COLS].to_numpy()
+    target_raw = df['Target_Return'].to_numpy().reshape(-1, 1)
+
+    folds = []
+    for train_idx, val_idx in walk_forward_splits(development_end, n_splits):
+        # Sequence k predicts raw row window_size + k.  Fit through the final
+        # training target row only; validation rows remain completely unseen.
+        train_sequence_end = int(train_idx[-1]) + 1
+        train_raw_end = window_size + train_sequence_end
+
+        scaler_x = RobustScaler()
+        scaler_y = StandardScaler()
+        scaler_x.fit(features_raw[:train_raw_end])
+        scaler_y.fit(target_raw[:train_raw_end])
+
+        features = scaler_x.transform(features_raw[:window_size + development_end])
+        target = scaler_y.transform(
+            target_raw[:window_size + development_end]
+        ).flatten()
+
+        X = np.asarray([
+            features[i - window_size:i]
+            for i in range(window_size, window_size + development_end)
+        ])
+        y = target[window_size:window_size + development_end]
+
+        folds.append((X[train_idx], y[train_idx], X[val_idx], y[val_idx]))
+
+    return folds
