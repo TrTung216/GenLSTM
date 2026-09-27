@@ -71,7 +71,17 @@ def load_raw_data():
     return df
 
 
-def evaluate_model(model, X_test, y_test, scaler_y):
+def evaluate_model(model, X_test, y_test, scaler_y, keep_last=None):
+    """Evaluate on a common suffix of the held-out test partition.
+
+    Different lookback windows create different numbers of sequences.  Using
+    the last N test sequences for every model aligns all metrics to the same
+    chronological target observations.
+    """
+    if keep_last is not None:
+        X_test = X_test[-keep_last:]
+        y_test = y_test[-keep_last:]
+
     model.eval()
     X_test_t = torch.tensor(X_test, dtype=torch.float32).to(DEVICE)
 
@@ -89,6 +99,7 @@ def evaluate_model(model, X_test, y_test, scaler_y):
         "rmse_return": rmse,
         "mae_return": mae,
         "directional_accuracy": da,
+        "test_samples": int(len(y_true)),
     }
 
 
@@ -104,7 +115,10 @@ def prepare_dataset(df_raw, window_size):
     return X_train, y_train, X_val, y_val, X_test, y_test, scaler_y
 
 
-def run_one(name, model_factory, df_raw, config, seed, optimized=False):
+def run_one(
+    name, model_factory, df_raw, config, seed, optimized=False,
+    common_test_samples=None,
+):
     print(f"\n{'=' * 68}\n{name}\n{'=' * 68}")
     set_seed(seed)
 
@@ -119,7 +133,10 @@ def run_one(name, model_factory, df_raw, config, seed, optimized=False):
         config["learning_rate"], config["batch_size"], DEVICE,
         max_epochs=MAX_EPOCHS, patience=PATIENCE,
     )
-    metrics = evaluate_model(training.model, X_test, y_test, scaler_y)
+    metrics = evaluate_model(
+        training.model, X_test, y_test, scaler_y,
+        keep_last=common_test_samples,
+    )
 
     return {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -221,9 +238,23 @@ def main():
         )
     )
 
+    # Fair-comparison boundary: each lookback can produce a slightly different
+    # number of sequences.  Align evaluation to the shortest held-out test
+    # suffix so every model is scored on identical final target observations.
+    test_lengths = {}
+    for name, _, config, _ in model_specs:
+        *_, X_test, y_test, _ = prepare_dataset(df_raw, config["window_size"])
+        test_lengths[name] = len(y_test)
+    common_test_samples = min(test_lengths.values())
+    print(f"Common aligned test samples: {common_test_samples}")
+    print(f"Raw test lengths by model: {test_lengths}")
+
     for seed in SEEDS:
         for name, factory, config, optimized in model_specs:
-            rows.append(run_one(name, factory, df_raw, config, seed, optimized))
+            rows.append(run_one(
+                name, factory, df_raw, config, seed, optimized,
+                common_test_samples=common_test_samples,
+            ))
 
     results = pd.DataFrame(rows)
     os.makedirs("experiments", exist_ok=True)
@@ -244,7 +275,8 @@ def main():
         "mae_return",
         "directional_accuracy",
     ]].to_string(index=False))
-    print(f"\nSaved: {output_path}")
+    print(f"\nAll models evaluated on the same final {common_test_samples} test observations.")
+    print(f"Saved: {output_path}")
 
 
 def _plot_metric_comparisons(summary):
